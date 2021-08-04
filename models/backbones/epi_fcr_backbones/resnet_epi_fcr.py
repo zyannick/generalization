@@ -110,18 +110,18 @@ class ResNetClassifierModule(nn.Module):
 
 
 class DomainSpecificNN(nn.Module):
-    def __init__(self, num_classes):
+    def __init__(self, backbone, classifier):
         super(DomainSpecificNN, self).__init__()
 
-        self.feature1 = ResNetFeatModule(BasicBlock, [2, 2, 2, 2])
-        self.feature2 = ResNetFeatModule(BasicBlock, [2, 2, 2, 2])
-        self.feature3 = ResNetFeatModule(BasicBlock, [2, 2, 2, 2])
+        self.feature1 = backbone
+        self.feature2 = backbone
+        self.feature3 = backbone
 
         self.features = [self.feature1, self.feature2, self.feature3]
 
-        self.classifier1 = ResNetClassifierModule(BasicBlock, num_classes)
-        self.classifier2 = ResNetClassifierModule(BasicBlock, num_classes)
-        self.classifier3 = ResNetClassifierModule(BasicBlock, num_classes)
+        self.classifier1 = classifier
+        self.classifier2 = classifier
+        self.classifier3 = classifier
 
         self.classifiers = [self.classifier1, self.classifier2, self.classifier3]
 
@@ -137,12 +137,12 @@ class DomainSpecificNN(nn.Module):
 
 
 class DomainAGG(nn.Module):
-    def __init__(self, num_classes):
+    def __init__(self,  backbone, classifier):
         super(DomainAGG, self).__init__()
 
-        self.feature = ResNetFeatModule(BasicBlock, [2, 2, 2, 2])
-        self.classifier = ResNetClassifierModule(BasicBlock, num_classes)
-        self.classifierrand = ResNetClassifierModule(BasicBlock, num_classes)
+        self.feature = backbone
+        self.classifier = classifier
+        self.classifierrand = classifier
 
     def bn_eval(self):
         for m in self.modules():
