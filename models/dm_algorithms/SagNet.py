@@ -25,9 +25,6 @@ class SagNet(DefaultModel):
         super(SagNet, self).__init__(input_shape, num_classes, num_domains,
                                   hparams)
 
-
-
-
     def setup(self):
         # featurizer network
         self.network_f = networks.Featurizer(self.input_shape, self.flags, self.hparams)

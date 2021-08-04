@@ -12,6 +12,8 @@ import torch.utils.data
 import torch.optim as optim
 import utils.misc as misc
 import utils.commons as commons
+import models.backbones.networks as networks 
+import multiprocessing as mp
 
 
 def get_preds(logits):
@@ -22,21 +24,16 @@ def get_preds(logits):
 
 class G2DM(DefaultModel):
 
-    def __init__(self,  flags, num_domains, input_shape, datasets):
-        super(G2DM, self).__init__()
+    def __init__(self,  flags, hparams, input_shape, datasets, checkpoint_path, class_balance):
+        super(G2DM, self).__init__(flags, hparams, input_shape, datasets, checkpoint_path, class_balance)
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
         self.flags = flags
+        self.input_shape = input_shape
+        self.flags = flags
+        self.num_domains = flags.num_domains
+        self.hparams = hparams
+        self.checkpoint_path = checkpoint_path
         self.datasets = datasets
-
-        self.setup(flags)
-        self.setup_path(flags)
-        self.configure(flags)
-        
-        
-
-    def setup(self):
-        flags = self.flags
-
         self.cur_epoch = 0
         self.total_iter = 0
         self.nadir_slack = flags.nadir_slack
@@ -53,57 +50,93 @@ class G2DM(DefaultModel):
         if flags.checkpoint_epoch is not None:
             self.load_checkpoint(flags.checkpoint_epoch)
 
+        self.setup(flags)
+        self.setup_path(flags)
+        self.configure(flags)
+        
+        
+
+    def setup(self):
+        flags = self.flags
+
         torch.backends.cudnn.deterministic = flags.deterministic
         print('torch.backends.cudnn.deterministic:',
               torch.backends.cudnn.deterministic)
         commons.fix_all_seed(self.flags.seed)
-        task_classifier = models.task_classifier()
-        domain_discriminator_list = []
-        for i in range(3):
+        #task_classifier = models.task_classifier()
+        self.domain_discriminator_list = []
+        for i in range(self.num_domains):
             if flags.rp_size == 4096:
                 disc = models.domain_discriminator_ablation_RP(optim.SGD, flags.lr_domain, flags.momentum_domain,
                                                                flags.l2).train()
             else:
                 disc = models.domain_discriminator(flags.rp_size, optim.SGD, flags.lr_domain, flags.momentum_domain,
                                                    flags.l2).train()
-            domain_discriminator_list.append(disc)
+            self.domain_discriminator_list.append(disc)
 
-        feature_extractor = models.get_pretrained_model(flags)
+        self.featurizer = networks.Featurizer(self.input_shape, self.hparams, self.flags)
+        self.classifier = networks.Classifier(self.featurizer.n_outputs, flags.num_classes, self.hparams['nonlinear_classifier'])
 
-        self.models_dict = {}
+        # self.models_dict = {}
 
-        self.models_dict['feature_extractor'] = feature_extractor
-        self.models_dict['task_classifier'] = task_classifier
-        self.models_dict['domain_discriminator_list'] = domain_discriminator_list
+        # self.models_dict['feature_extractor'] = feature_extractor
+        # self.models_dict['task_classifier'] = task_classifier
+        # self.models_dict['domain_discriminator_list'] = domain_discriminator_list
 
         if flags.cuda:
-            for key in self.models_dict.keys():
-                if key != 'domain_discriminator_list':
-                    self.models_dict[key] = self.models_dict[key].cuda()
-                else:
-                    for k, disc in enumerate(self.models_dict[key]):
-                        self.models_dict[key][k] = disc.cuda()
+            self.featurizer = self.featurizer.cuda()
+            self.classifier = self.classifier.cuda()
+            for k, disc in enumerate(self.domain_discriminator_list):
+                self.domain_discriminator_list[k] = self.domain_discriminator_list[k].cuda()
+
             torch.backends.cudnn.benchmark = True
-            if flags.checkpoint_path is None:
-                # Save to current directory
-                self.checkpoint_path = os.getcwd()
-            else:
-                self.checkpoint_path = flags.checkpoint_path
-                if not os.path.isdir(self.checkpoint_path):
-                    os.mkdir(self.checkpoint_path)
+
 
         self.cuda_mode = flags.cuda
         self.batch_size = flags.batch_size
-        self.feature_extractor = self.models_dict['feature_extractor']
 
-        self.device = next(self.feature_extractor.parameters()).device
+
+        self.device = next(self.featurizer.parameters()).device
         # self.flow_net = None
-
-        self.task_classifier = self.models_dict['task_classifier']
-        self.domain_discriminator_list = self.models_dict['domain_discriminator_list']
 
         self.history = {'loss_task': [], 'hypervolume': [], 'loss_domain': [], 'accuracy_source': [],
                         'accuracy_target': []}
+
+    def configure(self):
+        flags = self.flags
+        self.optimizer_task = optim.SGD(list(self.feature_extractor.parameters()) + list(self.task_classifier.parameters()),
+                                        lr=flags.lr_task, momentum=flags.momentum_task, weight_decay=flags.l2)
+
+        its_per_epoch = len(self.source_loader.dataset) // (self.source_loader.batch_size) + 1 if len(self.source_loader.dataset) % (
+            self.source_loader.batch_size) > 0 else len(self.source_loader.dataset) // (self.source_loader.batch_size)
+        patience = flags.patience * (1 + its_per_epoch)
+        self.after_scheduler_task = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer_task, factor=flags.factor,
+                                                                               patience=patience,
+                                                                               verbose=True if flags.verbose > 0 else False,
+                                                                               threshold=flags.lr_threshold, min_lr=1e-7)
+        self.after_scheduler_disc_list = [
+            torch.optim.lr_scheduler.ReduceLROnPlateau(disc.optimizer, factor=flags.factor, patience=patience,
+                                                       verbose=True if flags.verbose > 0 else False, threshold=flags.lr_threshold,
+                                                       min_lr=1e-7) for disc in self.domain_discriminator_list]
+
+        self.scheduler_task = GradualWarmupScheduler(self.optimizer_task, total_epoch=flags.warmup_its,
+                                                     after_scheduler=self.after_scheduler_task)
+        self.scheduler_disc_list = [
+            GradualWarmupScheduler(self.domain_discriminator_list[i].optimizer, total_epoch=flags.warmup_its,
+                                   after_scheduler=sch_disc) for i, sch_disc in
+            enumerate(self.after_scheduler_disc_list)]
+
+        if flags.label_smoothing > 0.0:
+            self.ce_criterion = LabelSmoothingLoss(
+                flags.label_smoothing, lbl_set_size=7)
+        else:
+            # self.ce_criterion = torch.nn.CrossEntropyLoss()	#torch.nn.NLLLoss()#
+            self.ce_criterion = F.binary_cross_entropy_with_logits
+        # loss_domain_discriminator = F.binary_cross_entropy_with_logits(y_predict, curr_y_domain)
+        weight = torch.tensor([2.0 / 3.0, 1.0 / 3.0]).to(self.device)
+        # d_cr=torch.nn.CrossEntropyLoss(weight=weight)
+        self.d_cr = torch.nn.NLLLoss(weight=weight)
+
 
     def setup_path(self):
         flags = self.flags
@@ -155,40 +188,8 @@ class G2DM(DefaultModel):
 
         if not os.path.exists(flags.logs):
             os.makedirs(flags.logs)
-    def configure(self):
-        flags = self.flags
-        self.optimizer_task = optim.SGD(list(self.feature_extractor.parameters()) + list(self.task_classifier.parameters()),
-                                        lr=flags.lr_task, momentum=flags.momentum_task, weight_decay=flags.l2)
 
-        its_per_epoch = len(self.source_loader.dataset) // (self.source_loader.batch_size) + 1 if len(self.source_loader.dataset) % (
-            self.source_loader.batch_size) > 0 else len(self.source_loader.dataset) // (self.source_loader.batch_size)
-        patience = flags.patience * (1 + its_per_epoch)
-        self.after_scheduler_task = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer_task, factor=flags.factor,
-                                                                               patience=patience,
-                                                                               verbose=True if flags.verbose > 0 else False,
-                                                                               threshold=flags.lr_threshold, min_lr=1e-7)
-        self.after_scheduler_disc_list = [
-            torch.optim.lr_scheduler.ReduceLROnPlateau(disc.optimizer, factor=flags.factor, patience=patience,
-                                                       verbose=True if flags.verbose > 0 else False, threshold=flags.lr_threshold,
-                                                       min_lr=1e-7) for disc in self.domain_discriminator_list]
 
-        self.scheduler_task = GradualWarmupScheduler(self.optimizer_task, total_epoch=flags.warmup_its,
-                                                     after_scheduler=self.after_scheduler_task)
-        self.scheduler_disc_list = [
-            GradualWarmupScheduler(self.domain_discriminator_list[i].optimizer, total_epoch=flags.warmup_its,
-                                   after_scheduler=sch_disc) for i, sch_disc in
-            enumerate(self.after_scheduler_disc_list)]
-
-        if flags.label_smoothing > 0.0:
-            self.ce_criterion = LabelSmoothingLoss(
-                flags.label_smoothing, lbl_set_size=7)
-        else:
-            # self.ce_criterion = torch.nn.CrossEntropyLoss()	#torch.nn.NLLLoss()#
-            self.ce_criterion = F.binary_cross_entropy_with_logits
-        # loss_domain_discriminator = F.binary_cross_entropy_with_logits(y_predict, curr_y_domain)
-        weight = torch.tensor([2.0 / 3.0, 1.0 / 3.0]).to(self.device)
-        # d_cr=torch.nn.CrossEntropyLoss(weight=weight)
-        self.d_cr = torch.nn.NLLLoss(weight=weight)
 
 
     # self.d_cr=  F.binary_cross_entropy_with_logits()
