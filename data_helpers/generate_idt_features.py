@@ -23,8 +23,6 @@ def generate_files(video_file_name):
 
 
 
-
-
 if __name__ == '__main__':
 
     if not os.path.exists(save_dir):
