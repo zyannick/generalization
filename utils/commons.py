@@ -7,8 +7,53 @@ from sklearn.metrics import accuracy_score
 from collections import OrderedDict
 from numbers import Number
 import operator
+import hashlib
+from collections import Counter
+import sys
 
 
+def make_weights_for_balanced_classes(dataset):
+    counts = Counter()
+    classes = []
+    for _, y in dataset:
+        y = int(y)
+        counts[y] += 1
+        classes.append(y)
+
+    n_classes = len(counts)
+
+    weight_per_class = {}
+    for y in counts:
+        weight_per_class[y] = 1 / (counts[y] * n_classes)
+
+    weights = torch.zeros(len(dataset))
+    for i, y in enumerate(classes):
+        weights[i] = weight_per_class[int(y)]
+
+    return weights
+
+
+def pdb():
+    sys.stdout = sys.__stdout__
+    import pdb
+    print("Launching PDB, enter 'n' to step to parent function.")
+    pdb.set_trace()
+
+
+def print_row(row, colwidth=10, latex=False):
+    if latex:
+        sep = " & "
+        end_ = "\\\\"
+    else:
+        sep = "  "
+        end_ = ""
+
+    def format_val(x):
+        if np.issubdtype(type(x), np.floating):
+            x = "{:.10f}".format(x)
+        return str(x).ljust(colwidth)[:colwidth]
+
+    print(sep.join([format_val(x) for x in row]), end_)
 
 
 def unfold_label(labels, classes):
@@ -57,6 +102,7 @@ def num_flat_features(x):
 
 def worker_init_fn(worker_id):
     np.random.seed(np.random.get_state()[1][0] + worker_id)
+
 
 def crossentropyloss():
     loss_fn = torch.nn.CrossEntropyLoss()
@@ -108,6 +154,7 @@ def compute_accuracy(predictions, labels):
     accuracy = accuracy_score(y_true=y_true, y_pred=np.argmax(predictions, axis=-1))
     return accuracy
 
+
 class ParamDict(OrderedDict):
     """Code adapted from https://github.com/Alok/rl_implementations/tree/master/reptile.
     A dictionary where the values are Tensors, meant to represent weights of
@@ -143,6 +190,14 @@ class ParamDict(OrderedDict):
 
     def __truediv__(self, other):
         return self._prototype(other, operator.truediv)
+
+
+def seed_hash(*args):
+    """
+    Derive an integer hash from all args, for use as a random seed.
+    """
+    args_str = str(args)
+    return int(hashlib.md5(args_str.encode("utf-8")).hexdigest(), 16) % (2 ** 31)
 
 
 def random_pairs_of_minibatches(minibatches):

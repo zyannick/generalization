@@ -65,7 +65,7 @@ class StaticCenterCrop(object):
         return img[(self.h - self.th) // 2:(self.h + self.th) // 2, (self.w - self.tw) // 2:(self.w + self.tw) // 2, :]
 
 
-class ImagesFromFolder(data.Dataset):
+class ImageParser(data.Dataset):
     def __init__(self, args, is_cropped, images=None, iext='png', replicates=1):
         self.args = args
         self.is_cropped = is_cropped
@@ -131,8 +131,10 @@ correspondance = {'walk': 0, 'handpickup': 1, 'lieonbedthensit': 2,
                   'sitthenfall': 6, 'fall': 7}
 
 
-def make_dataset(split_file, split, root, original_mode, num_classes,
-                 nb_frames_per_shot, is_inference=False, label_smoothing=False):
+def make_dataset(split, data_root, input_mode, num_classes, nb_frames_per_shot):
+
+    split_file = glob(os.path.join(data_root, '*.json'))[0]
+
     dataset = []
 
     # print(os.getcwd() )
@@ -151,7 +153,7 @@ def make_dataset(split_file, split, root, original_mode, num_classes,
 
         video_name = data[vid]['oricy']
 
-        file_name = os.path.join(root, video_name)
+        file_name = os.path.join(data_root, video_name)
 
         # print(file_name)
 
@@ -161,7 +163,7 @@ def make_dataset(split_file, split, root, original_mode, num_classes,
 
         num_frames = int(data[vid]['duration'])
 
-        if original_mode == 'flow':
+        if input_mode == 'flow':
             # num_frames = num_frames // 2
             num_frames = num_frames - 1
             if num_frames < nb_frames_per_shot - 1:
@@ -242,37 +244,27 @@ def save_numpy_frames(flow_numpy):
 
 class Video_Datasets(data_utl.Dataset):
 
-    def __init__(self, split, args, domaine, is_train,  transforms=None, flownet=None, args_flow_net=None):
+    def __init__(self, data_root,  split, flags, domain_key, is_train, modality,  transforms=None):
 
         # print("prepare dataset cme")
         self.is_train = is_train
-        self.data = make_dataset(args.split_file, split, args.root,
-                                 args.original_mode, args.num_classes, args.nb_frames, is_train,
-                                 args.label_smoothing)
-        self.args = args
-        self.domaine = domaine
-        self.nb_frames = args.nb_frames
-        self.blur_kernel = args.blur_kernel
-        self.operator_kernel = args.operator_kernel
-        self.split_file = args.split_file
+        self.data = make_dataset(split, data_root, flags.input_mode, flags.num_classes, flags.nb_frames)
+        self.args = flags
+        self.domain_key = domain_key
+        self.nb_frames = flags.nb_frames
         self.transforms = transforms
-        self.flownet = flownet
-        self.args_flownet = args_flow_net
-        self.original_mode = args.original_mode
-        self.middle_mode = args.middle_mode
-        self.root = args.root
-        self.edge_type = args.edge_type
-        self.data_aug = args.data_aug
-        self.affine_transform = args.affine_transform
-        self.distance_transform = args.distance_transform
-        self.type_img = args.type_img
-        self.label_smoothing = args.label_smoothing
+        self.input_mode = flags.input_mode
+        self.middle_mode = flags.middle_mode
+        self.root = flags.root
+        self.modality = modality
+        self.data_aug = flags.data_aug
+        self.affine_transform = flags.affine_transform
         self.taille = len(self.data)
         # print("dataset prepared cme")
 
     def get_video(self, index):
         vid, label, total_number_frames = self.data[index]
-        if self.original_mode == 'flow':
+        if self.input_mode == 'flow':
             start_f = 0 if total_number_frames == (self.nb_frames - 1) else random.randint(0,
                                                                                            total_number_frames - self.nb_frames)
         else:
@@ -282,10 +274,10 @@ class Video_Datasets(data_utl.Dataset):
         # print('enfin %d' %(total_number_frames-start_f))
         imgs, list_imgs = load_frames(self.root, vid, start_f, self.nb_frames, self.data_aug,
                                       affine_transform=self.affine_transform,
-                                      domain=self.domain,
+                                      domain_key=self.domain_key,
                                       is_train=self.is_train,
-                                      type_img=self.type_img,
-                                      verbose=False, original_mode=self.original_mode,
+                                      modality=self.modality,
+                                      verbose=False, original_mode=self.input_mode,
                                       middle_mode=self.middle_mode,
                                       frame_height=192,
                                       frame_width=256
@@ -295,7 +287,7 @@ class Video_Datasets(data_utl.Dataset):
         # print(imgs.shape)
 
         if self.args.middle_mode == 'flow':
-            image_dataset = ImagesFromFolder(args=self.args_flownet, images=list_imgs, is_cropped=False)
+            image_dataset = ImageParser(args=self.args_flownet, images=list_imgs, is_cropped=False)
             image_loader = torch.utils.data.DataLoader(image_dataset, batch_size=self.nb_frames)
             flows = inference(args=self.args_flownet, data_loader=image_loader, model=self.flownet)
             # print(flows.shape)

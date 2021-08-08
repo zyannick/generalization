@@ -179,12 +179,13 @@ class ModelAggregate(DefaultModel):
         
     def training(self):
         self.network.train()
-        self.network.bn_eval()
+        if self.flags.input_mode == 'idt':
+            self.network.bn_eval()
         self.best_accuracy_val = -1
 
-        for self.cur_epoch in range(self.flags.n_epochs):
+        for self.current_epoch in range(self.flags.n_epochs):
 
-            self.scheduler.step(epoch=self.cur_epoch)
+            self.scheduler.step(epoch=self.current_epoch)
 
             # get the inputs and labels from the data reader
             total_loss = 0.0
@@ -213,9 +214,9 @@ class ModelAggregate(DefaultModel):
             # optimize the parameters
             self.optimizer.step()
 
-            if self.cur_epoch < 500 or self.cur_epoch % 500 == 0:
+            if self.current_epoch < 500 or self.current_epoch % 500 == 0:
                 print(
-                    'ite:', self.cur_epoch, 'total loss:', total_loss.cpu().item(), 'lr:',
+                    'ite:', self.current_epoch, 'total loss:', total_loss.cpu().item(), 'lr:',
                     self.scheduler.get_lr()[0])
 
             flags_log = os.path.join(self.flags.logs, 'loss_log.txt')
@@ -223,8 +224,8 @@ class ModelAggregate(DefaultModel):
                 str(total_loss.item()),
                 flags_log)
 
-            if self.cur_epoch % self.flags.test_every == 0 and self.cur_epoch is not 0:
-                self.test_workflow(self.val_dataloaders, self.flags, self.cur_epoch)
+            if self.current_epoch % self.flags.test_every == 0 and self.current_epoch is not 0:
+                self.test_workflow(self.val_dataloaders, self.flags, self.current_epoch)
 
     def test_workflow(self, validation_loaders, flags, ite):
 

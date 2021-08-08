@@ -18,8 +18,8 @@ import numpy as np
 
 
 class VREX(ERM):
-    def __init__(self, flags, gears, hparams, input_shape, datasets, checkpoint_path, class_balance):
-        super(VREX, self).__init__(flags, gears, hparams, input_shape, datasets, checkpoint_path, class_balance)
+    def __init__(self, flags, hparams, input_shape, datasets, checkpoint_path, class_balance):
+        super(VREX, self).__init__(flags, hparams, input_shape, datasets, checkpoint_path, class_balance)
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
         self.register_buffer('update_count', torch.tensor([0]))
 

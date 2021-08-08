@@ -1,122 +1,158 @@
+from models.backbones.r2p1d import load_model
 import os
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = '3'
 
 from data_helpers.dataset import Video_Datasets
-import utils
-import torchvision.models as models_tv
-#from data_loader import Loader_source, Loader_validation, Loader_unif_sampling
-from train_loop import TrainLoop
-import models as models
 import data_helpers.videotransforms as videotransforms
-import pandas
-import PIL
 from torchvision import transforms
 from torchvision import datasets
 import torch.utils.data
 import torch.optim as optim
-import argparse
-import sys
 import random
 from tqdm import tqdm
+import numpy as np
 import setproctitle
-import colorama
-from utils import system_info
+from utils import commons, system_info
+import hparams_registry
+import json
+from model_loader import *
 
+from args_parser import global_parser
 
-from args_parser import g2dm_parser
+parser = global_parser()
 
-parser = g2dm_parser()
+flags = parser.parse_args()
+flags.cuda = True if not flags.no_cuda and torch.cuda.is_available() else False
+flags.logging = True if not flags.no_logging else False
 
-args = parser.parse_args()
-args.cuda = True if not args.no_cuda and torch.cuda.is_available() else False
-args.logging = True if not args.no_logging else False
-
-assert args.alpha >= 0. and args.alpha <= 1.
-
-print('Source domains: {}, {}, {}'.format(
-    args.source1, args.source2, args.source3))
-print('Orignal mode :{}'.format(args.original_mode))
-print('Middle mode :{}'.format(args.middle_mode))
-print('Target domain:', args.target)
-print('Cuda Mode: {}'.format(args.cuda))
-print('Batch size: {}'.format(args.batch_size))
-print('LR task: {}'.format(args.lr_task))
-print('LR domain: {}'.format(args.lr_domain))
-print('L2: {}'.format(args.l2))
-print('Alpha: {}'.format(args.alpha))
-print('Momentum task: {}'.format(args.momentum_task))
-print('Momentum domain: {}'.format(args.momentum_domain))
-print('Nadir slack: {}'.format(args.nadir_slack))
-print('RP size: {}'.format(args.rp_size))
-print('Patience: {}'.format(args.patience))
-print('Smoothing: {}'.format(args.smoothing))
-print('Warmup its: {}'.format(args.warmup_its))
-print('LR factor: {}'.format(args.factor))
-print('Ablation: {}'.format(args.ablation))
-print('Train mode: {}'.format(args.train_mode))
-print('Train model: {}'.format(args.train_model))
-print('Seed: {}'.format(args.seed))
-
-
-
-argparse_dict = vars(args)
-
-print('\n\n')
-for cle, values in argparse_dict.items():
-    print(cle +  ' --> ' + str(values))
-print('\n\n')
+assert flags.alpha >= 0. and flags.alpha <= 1.
 
 
 
 
+argparse_dict = vars(flags)
 
-acc_runs = []
-acc_blind = []
+
 seeds = [1, 10, 100]
 
-args.n_runs = 1
+flags.n_runs = 1
 
 
 
-for run in range(args.n_runs):
+def running(run):
+
     print('Run {}'.format(run))
 
     train_mode = ''
 
-    print('data augmentation')
-    print(args.data_aug)
+    if flags.hparams_seed == 0:
+        hparams = hparams_registry.default_hparams(flags.algorithm, flags.dataset)
+    else:
+        hparams = hparams_registry.random_hparams(flags.algorithm, flags.dataset,
+            commons.seed_hash(flags.hparams_seed, flags.trial_seed))
+    if flags.hparams:
+        hparams.update(json.loads(flags.hparams))
+
+    print('HParams:')
+    for k, v in sorted(hparams.items()):
+        print('\t{}: {}'.format(k, v))
+
+    random.seed(flags.seed)
+    np.random.seed(flags.seed)
+    torch.manual_seed(flags.seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    if torch.cuda.is_available():
+        flags.device = "cuda"
+    else:
+        flags.device = "cpu"
+
+    
+
 
     # Setting seed
-    if args.seed is None:
+    if flags.seed is None:
         random.seed(seeds[run])
         torch.manual_seed(seeds[run])
-        if args.cuda:
+        if flags.cuda:
             torch.cuda.manual_seed(seeds[run])
         checkpoint_path = os.path.join(
-            args.checkpoint_path, args.target + '_' + train_mode + '_seed' + str(seeds[run]))
+            flags.checkpoint_path, flags.target + '_' + train_mode + '_seed' + str(seeds[run]))
     else:
-        seeds[run] = args.seed
-        random.seed(args.seed)
-        torch.manual_seed(args.seed)
-        if args.cuda:
-            torch.cuda.manual_seed(args.seed)
+        seeds[run] = flags.seed
+        random.seed(flags.seed)
+        torch.manual_seed(flags.seed)
+        if flags.cuda:
+            torch.cuda.manual_seed(flags.seed)
         checkpoint_path = os.path.join(
-            args.checkpoint_path, args.target + '_' + train_mode + '_seed' + str(args.seed))
+            flags.checkpoint_path, flags.target + '_' + train_mode + '_seed' + str(flags.seed))
 
     system_info()
 
-    # setup dataset
-    train_transforms = transforms.Compose([videotransforms.RandomCrop(224),
-                                           videotransforms.RandomHorizontalFlip(),
-                                           ])
-    test_transforms = transforms.Compose([videotransforms.CenterCrop(224)])
+    transformations = {}
 
-    nb_workers = 0
+    if flags.input == 'video':
+        transformations['train'] = transforms.Compose([videotransforms.RandomCrop(224),
+                                            videotransforms.RandomHorizontalFlip(),
+                                            ])
+        transformations['val'] = transforms.Compose([videotransforms.CenterCrop(224)])
+        transformations['test'] = transforms.Compose([videotransforms.CenterCrop(224)])
+    else:
+        transformations['train'] = transforms.Compose([videotransforms.RandomCrop(224),
+                                            videotransforms.RandomHorizontalFlip(),
+                                            ])
+        transformations['val'] = transforms.Compose([videotransforms.CenterCrop(224)])
+        transformations['test'] = transforms.Compose([videotransforms.CenterCrop(224)])
 
-    print(args.batch_size)
+
+    train_data = {}
+    val_data = {}
+    
+
+    for domain_key in flags.source_domains_list:
+        train_data[domain_key] = Video_Datasets(data_root=flags.data_root,  split='train', flags=flags, domain_key=domain_key, is_train=True, modality = flags.modality,  transforms=transformations['train'])
+        val_data[domain_key] = Video_Datasets(data_root=flags.data_root,  split='val', flags=flags, domain_key=domain_key, is_train=False, modality = flags.modality,  transforms=transformations['val'])
+
+    test_data = {}
+
+    for domain_key in flags.target_domains_list:
+        test_data[domain_key] = Video_Datasets(data_root=flags.target_root,  split='val', flags=flags, domain_key=domain_key, is_train=True, modality = 'thermal',  transforms=transformations['val'])
+
+    datasets = {}
+    datasets['train'] = train_data
+    datasets['val'] = val_data
+    datasets['test'] = test_data
+    
+    model_obj = get_model(flags, hparams, datasets)
+
+    print(flags.batch_size)
 
     setproctitle.setproctitle(train_mode)
+
+
+    if flags.phase == 'train':
+        model_obj.training()
+    elif flags.phase == 'extract_features':
+        model_obj.extract_features()
+    elif flags.phase == 'vizualize':
+        model_obj.visualize_features_maps()
+
+
+def runs():
+    for i in range(flags.n_runs):
+        print('Run {}'.format(i))
+        running(i)
+
+
+if __name__ == '__main__':
+
+    # need to add argparse
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = flags.gpus
+    system_info()
+    runs()
+
+
 
    
 

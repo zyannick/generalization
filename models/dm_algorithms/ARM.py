@@ -69,7 +69,7 @@ class ARM(ERM.ERM):
     #         return False
 
 
-    def train(self):
+    def training(self):
 
         flags = self.flags
 

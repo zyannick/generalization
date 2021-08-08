@@ -24,8 +24,8 @@ def getratio(frame_width = 80, frame_height = 60):
     return  radius_frame / radius_80_60
 
 def load_frames(root, video_file, start, nb_frames_per_shot,
-                data_aug, affine_transform, is_train, domain,
-                type_img='visible', verbose = False, original_mode = 'rgb', middle_mode = 'rgb',
+                data_aug, affine_transform, is_train, domain_key,
+                modality='visible', verbose = False, original_mode = 'rgb', middle_mode = 'rgb',
                 frame_width = 80, frame_height = 60):
     ratio = getratio(frame_width, frame_height)
     original_mode = original_mode
@@ -47,11 +47,11 @@ def load_frames(root, video_file, start, nb_frames_per_shot,
     green = 0
     blue = 0
 
-    if type_img == 'visible':
+    if modality == 'visible':
         red = random.randint(50, 255)
         green = random.randint(50, 255)
         blue = random.randint(50, 255)
-    elif type_img == 'tir' or type_img == 'edge':
+    elif modality == 'tir' or modality == 'edge':
         pix_value = random.randint(50, 255)
         red = pix_value
         green = pix_value
@@ -100,7 +100,7 @@ def load_frames(root, video_file, start, nb_frames_per_shot,
             dx = int(random.uniform(-1, 1) * ratio)
             dy = int(random.uniform(-1, 1) * ratio)
             if insert_rectangle == 2:
-                if type_img != 'edge':
+                if modality != 'edge':
                     cv2.rectangle(img, (rh + dx, rw + dy), (rh + dx + ecart_rectangle, rw + dy + ecart_rectangle),
                                   (red, green, blue), -1)
                 else:
@@ -110,11 +110,11 @@ def load_frames(root, video_file, start, nb_frames_per_shot,
                 M = cv2.getAffineTransform(pts1, pts2)
                 img = cv2.warpAffine(img, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
 
-        if domain == 'rgb':
+        if domain_key == 'rgb':
             img = img
-        elif domain == 'sobel':
+        elif domain_key == 'sobel':
             img = transform_img_sobel(img, 0, 3)
-        elif domain == 'laplace':
+        elif domain_key == 'laplace':
             img = laplace_dev(img, 0, 3)
 
         #if verbose:
