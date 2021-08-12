@@ -81,56 +81,23 @@ class AbstractDANN(Algorithm):
             weight_decay=self.hparams['weight_decay_g'],
             betas=(self.hparams['beta1'], 0.9))
 
-    def load_checkpoint(self, epoch):
-
-        ckpt = self.save_epoch_fmt_task.format(epoch)
-
-        ck_name = ckpt
-
-        if os.path.isfile(ckpt):
-
-            ckpt = torch.load(ckpt)
-            # Load model state
-            self.featurizer.load_state_dict(ckpt['featurizer'])
-            self.classifier.load_state_dict(ckpt['classifier'])
-            self.discriminator.load_state_dict(ckpt['discriminator'])
-            self.class_embeddings.load_state_dict(ckpt['class_embeddings'])
-            # Load history
-            self.history = ckpt['history']
-            self.cur_epoch = ckpt['cur_epoch']
-            self.current_lr = ckpt['lr']
-
-            print('Checkpoint number {} loaded  ---> {}'.format(
-                epoch, ck_name))
-            return True
-        else:
-            print(colored('No checkpoint found at: {}'.format(ckpt), 'red'))
-            if self.flags.phase != 'train':
-                raise ValueError(
-                    '----------Unable to load checkpoint  {}. The program will exit now----------\n\n'
-                        .format(ck_name))
-
-            return False
-
-    def update(self, minibatches, unlabeled=None):
-        device = "cuda" if minibatches[0][0].is_cuda else "cpu"
+    def update(self, x, y, d):
+        device = "cuda" if x.is_cuda else "cpu"
         self.update_count += 1
-        all_x = torch.cat([x for x, y in minibatches])
-        all_y = torch.cat([y for x, y in minibatches])
-        all_z = self.featurizer(all_x)
+        all_z = self.featurizer(x)
         if self.conditional:
-            disc_input = all_z + self.class_embeddings(all_y)
+            disc_input = all_z + self.class_embeddings(y)
         else:
             disc_input = all_z
         disc_out = self.discriminator(disc_input)
         disc_labels = torch.cat([
-            torch.full((x.shape[0],), i, dtype=torch.int64, device=device)
-            for i, (x, y) in enumerate(minibatches)
+            torch.full((x_.shape[0],), i, dtype=torch.int64, device=device)
+            for i, (x_, y_) in enumerate([(x, y)])
         ])
 
         if self.class_balance:
-            y_counts = F.one_hot(all_y).sum(dim=0)
-            weights = 1. / (y_counts[all_y] * y_counts.shape[0]).float()
+            y_counts = F.one_hot(y).sum(dim=0)
+            weights = 1. / (y_counts[y] * y_counts.shape[0]).float()
             disc_loss = F.cross_entropy(disc_out, disc_labels, reduction='none')
             disc_loss = (weights * disc_loss).sum()
         else:
@@ -151,7 +118,7 @@ class AbstractDANN(Algorithm):
             return {'disc_loss': disc_loss.item()}
         else:
             all_preds = self.classifier(all_z)
-            classifier_loss = F.cross_entropy(all_preds, all_y)
+            classifier_loss = F.cross_entropy(all_preds, y)
             gen_loss = (classifier_loss +
                         (self.hparams['lambda'] * -disc_loss))
             self.disc_opt.zero_grad()

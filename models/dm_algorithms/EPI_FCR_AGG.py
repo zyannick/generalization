@@ -13,7 +13,7 @@ import torch.nn as nn
 
 from models.backbones.epi_fcr_backbones import resnet_vanilla, resnet_epi_fcr
 
-from models.algoritms import DefaultModel
+from models.algoritms import Algorithm, DefaultModel
 import utils.commons as commons
 from data_helpers.pytorch_balanced_sampler.sampler import SamplerFactory
 import torch.optim as optim
@@ -27,7 +27,7 @@ import numpy as np
 
 
 
-class ModelAggregate(DefaultModel):
+class ModelAggregate(Algorithm):
     def __init__(self, flags, gears, hparams, input_shape, datasets, checkpoint_path, class_balance):
         super(ModelAggregate, self).__init__(flags, gears, hparams, input_shape, datasets, checkpoint_path, class_balance)
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
