@@ -17,7 +17,7 @@ from torch.autograd import Variable
 
 from models.backbones.epi_fcr_backbones import resnet_vanilla, resnet_epi_fcr
 
-from models.algoritms import DefaultModel
+from models.algoritms import Algorithm
 import utils.commons as commons
 from data_helpers.pytorch_balanced_sampler.sampler import SamplerFactory
 import torch.optim as optim
@@ -34,7 +34,7 @@ import numpy as np
 
 
 
-class Fish(DefaultModel):
+class Fish(Algorithm):
     def __init__(self, flags, hparams, input_shape, datasets, checkpoint_path, class_balance):
         super(Fish, self).__init__(flags, hparams, input_shape, datasets, checkpoint_path, class_balance)
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
@@ -69,36 +69,6 @@ class Fish(DefaultModel):
         self.optimizer_inner_state = None
 
 
-
-
-    def load_checkpoint(self, epoch):
-
-        ckpt = self.save_epoch_fmt_task.format(epoch)
-
-        ck_name = ckpt
-
-        if os.path.isfile(ckpt):
-
-            ckpt = torch.load(ckpt)
-            # Load model state
-            self.network.load_state_dict(ckpt['network'])
-
-            # Load history
-            self.history = ckpt['history']
-            self.cur_epoch = ckpt['cur_epoch']
-            self.current_lr = ckpt['lr']
-
-            print('Checkpoint number {} loaded  ---> {}'.format(
-                epoch, ck_name))
-            return True
-        else:
-            print(colored('No checkpoint found at: {}'.format(ckpt), 'red'))
-            if self.flags.phase != 'train':
-                raise ValueError(
-                    '----------Unable to load checkpoint  {}. The program will exit now----------\n\n'
-                    .format(ck_name))
-
-            return False
 
 
     def create_clone(self, device):

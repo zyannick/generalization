@@ -68,103 +68,10 @@ class ERM(Algorithm):
             weight_decay=self.hparams['weight_decay']
         )
 
-    # def load_checkpoint(self, epoch):
-    #     ckpt = self.save_epoch_fmt_task.format(epoch)
-    #     ck_name = ckpt
-    #     if os.path.isfile(ckpt):
-    #         ckpt = torch.load(ckpt)
-    #         # Load model state
-    #         self.featurizer.load_state_dict(ckpt['featurizer'])
-    #         self.classifier.load_state_dict(ckpt['classifier'])
-    #         # Load history
-    #         self.history = ckpt['history']
-    #         self.cur_epoch = ckpt['cur_epoch']
-    #         self.current_lr = ckpt['lr']
-    #         print('Checkpoint number {} loaded  ---> {}'.format(
-    #             epoch, ck_name))
-    #         return True
-    #     else:
-    #         print(colored('No checkpoint found at: {}'.format(ckpt), 'red'))
-    #         if self.flags.phase != 'train':
-    #             raise ValueError(
-    #                 '----------Unable to load checkpoint  {}. The program will exit now----------\n\n'
-    #                 .format(ck_name))
-    #         return False
 
-
-    # def training(self):
-
-    #     flags = self.flags
-
-    #     train_minibatches_iterator = zip(*self.train_dataloaders)
-    #     self.network.train()
-    #     self.network.bn_eval()
-    #     self.best_accuracy_val = -1
-    #     while self.cur_epoch < flags.n_epochs:
-    #         step_start_time = time.time()
-    #         minibatches_device = [(x.cuda(), y.cuda())
-    #             for x,y in next(train_minibatches_iterator)]
-    #         step_vals = self.update(minibatches_device)
-    #         self.checkpoint_vals['step_time'].append(time.time() - step_start_time)
-    #         for key, val in step_vals.items():
-    #             self.checkpoint_vals[key].append(val)
-            
-    #         if (self.cur_epoch % self.flags.test_every == 0) or (self.cur_epoch == flags.n_epochs - 1):
-    #             results = {
-    #                 'step': self.cur_epoch,
-    #                 'epoch': self.cur_epoch / self.flags.steps_per_epoch,
-    #             }
-
-    #             for key, val in checkpoint_vals.items():
-    #                 results[key] = np.mean(val)
-
-    #             for domain_key, loader in self.val_dataloader:
-    #                 acc = self.testing(loader, domain_key)
-    #                 results[domain_key+'_acc'] = acc
-
-    #             results_keys = sorted(results.keys())
-    #             if results_keys != last_results_keys:
-    #                 misc.print_row(results_keys, colwidth=12)
-    #                 last_results_keys = results_keys
-    #             misc.print_row([results[key] for key in results_keys], colwidth=12)
-
-    #             results.update({
-    #                 'hparams': self.hparams,
-    #                 'args': vars(self.flags)
-    #             })
-
-    #             epochs_path = os.path.join(args.output_dir, 'results.jsonl')
-    #             with open(epochs_path, 'a') as f:
-    #                 f.write(json.dumps(results, sort_keys=True) + "\n")
-
-    #             algorithm_dict = algorithm.state_dict()
-    #             start_step = step + 1
-    #             checkpoint_vals = collections.defaultdict(lambda: [])
-
-    #             if args.save_model_every_checkpoint:
-    #                 self.save_checkpoint(f'model_step{step}.pkl')
-
-    # def testing(self, domain_key, loader):
-    #     correct = 0
-    #     total = 0
-    #     weights_offset = 0
-
-    #     self.network.eval()
-    #     with torch.no_grad():
-    #         for x, y in loader:
-    #             x = x.to(self.device)
-    #             y = y.to(self.device)
-    #             p = self.network.predict(x)
-
-    #     self.network.train()
-
-    #     return p
-            
-
-    def update(self, minibatches, unlabeled=None):
-        all_x = torch.cat([x for x,y in minibatches])
-        all_y = torch.cat([y for x,y in minibatches])
-        loss = F.cross_entropy(self.predict(all_x), all_y)
+        
+    def update(self, x, y, d):
+        loss = F.cross_entropy(self.predict(x), y)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()

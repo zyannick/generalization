@@ -126,3 +126,6 @@ class AbstractDANN(Algorithm):
             gen_loss.backward()
             self.gen_opt.step()
             return {'gen_loss': gen_loss.item()}
+
+    def predict(self, x):
+        return self.network(x)

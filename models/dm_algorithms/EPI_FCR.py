@@ -151,7 +151,6 @@ class ModelEpiFCR(ModelAggregate):
             self.agg_nn.bn_eval()
 
     def train_agg_nn(self, ite, flags):
-
         candidates = list(self.candidates)
         index_val = np.random.choice(candidates, size=1)[0]
         candidates.remove(index_val)
@@ -168,32 +167,23 @@ class ModelEpiFCR(ModelAggregate):
         epic_loss = 0.0
         epif_loss = 0.0
         for index in range(len(list_sources_keys)):
-
             source_key = list_sources_keys[index]
-
             source_loader = self.train_dataloaders[source_key]
-
             inputs_train, labels_train = source_loader
-
             # wrap the inputs and labels in Variable
-            inputs, labels = Variable(inputs_train, requires_grad=False).cuda(), \
-                             Variable(labels_train, requires_grad=False).long().cuda()
-
+            inputs, labels = Variable(inputs_train, requires_grad=False).cuda(),  Variable(labels_train, requires_grad=False).long().cuda()
             # forward
             outputs_agg, outputs_rand, _ = self.agg_nn(x=inputs, agg_only=False)
 
             # loss
             agg_xent_loss += self.loss_fn(outputs_agg, labels)
             epir_loss += self.loss_fn(outputs_rand, labels) * self.loss_weight_epir
-
             if index == index_val:
                 assert index != index_trn
-
                 if ite >= flags.ite_train_epi_c:
                     net = self.ds_nn.features[index_trn](inputs)
                     outputs_val, _ = self.agg_nn.classifier(net)
                     epic_loss += self.loss_fn(outputs_val, labels) * self.loss_weight_epic
-
                 if ite >= flags.ite_train_epi_f:
                     net = self.agg_nn.feature(inputs)
                     outputs_val, _ = self.ds_nn.classifiers[index_trn](net)
@@ -238,9 +228,7 @@ class ModelEpiFCR(ModelAggregate):
             inputs_train, labels_train = source_loader
 
             # wrap the inputs and labels in Variable
-            inputs, labels = Variable(inputs_train, requires_grad=False).cuda(), \
-                             Variable(labels_train, requires_grad=False).long().cuda()
-
+            inputs, labels = Variable(inputs_train, requires_grad=False).cuda(),   Variable(labels_train, requires_grad=False).long().cuda()
             # forward
             outputs, _, _ = self.agg_nn(x=inputs)
 

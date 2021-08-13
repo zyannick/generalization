@@ -53,8 +53,7 @@ class Algorithm(torch.nn.Module):
     - predict()
     """
 
-    def __init__(self, flags, hparams, input_shape, datasets, class_idx,
-                 checkpoint_path, class_balance):
+    def __init__(self, flags, hparams, input_shape, class_idx, class_balance):
         super(Algorithm, self).__init__()
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
         self.class_balance = class_balance
@@ -64,8 +63,6 @@ class Algorithm(torch.nn.Module):
         self.num_classes = flags.num_classes
         self.num_domains = flags.num_domains
         self.hparams = hparams
-        self.datasets = datasets
-        self.checkpoint_path = checkpoint_path
         self.num_devices = cuda.device_count()
         self.save_epoch_fmt_task = os.path.join(self.checkpoint_path,
                                                 'checkpoint_{}ep.pt')
