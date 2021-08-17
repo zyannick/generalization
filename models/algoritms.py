@@ -67,6 +67,7 @@ class Algorithm(torch.nn.Module):
         self.save_epoch_fmt_task = os.path.join(self.checkpoint_path,
                                                 'checkpoint_{}ep.pt')
         self.update_count = 0
+        # A dictionnary containing all models
         self.setup()
         self.configure()
 
@@ -86,7 +87,7 @@ class Algorithm(torch.nn.Module):
         """
         raise NotImplementedError
 
-    def predict(self, x):
+    def predict(self, x, y, d, *argv):
         raise NotImplementedError
 
 

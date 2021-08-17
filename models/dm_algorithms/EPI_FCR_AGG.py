@@ -28,8 +28,8 @@ import numpy as np
 
 
 class ModelAggregate(Algorithm):
-    def __init__(self, flags, gears, hparams, input_shape, class_balance):
-        super(ModelAggregate, self).__init__(flags, gears, hparams, input_shape, class_balance)
+    def __init__(self, flags, hparams, input_shape, class_balance):
+        super(ModelAggregate, self).__init__(flags, hparams, input_shape, class_balance)
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
         self.setup()
         self.configure()
@@ -50,6 +50,10 @@ class ModelAggregate(Algorithm):
         flags_log = os.path.join(flags.logs, 'flags_log.txt')
         commons.write_log(flags, flags_log)
         self.load_state_dict(flags, self.network)
+
+    @property
+    def factory(self):
+        return {'network': self.network}
 
 
     def configure(self):

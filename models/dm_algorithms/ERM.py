@@ -68,10 +68,12 @@ class ERM(Algorithm):
             weight_decay=self.hparams['weight_decay']
         )
 
-
+    @property
+    def factory(self):
+        return {'network': self.network}
         
     def update(self, x, y, d):
-        loss = F.cross_entropy(self.predict(x), y)
+        loss = F.cross_entropy(self.network(x), y)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()

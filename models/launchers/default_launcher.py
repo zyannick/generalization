@@ -1,18 +1,20 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.autograd as autograd
-from torch.autograd import Variable
-import collections
-import utils.commons as commons
-import multiprocessing as mp
-import os
-import torch.cuda as cuda
-from time import time
-import json
-import numpy as np
-from data_helpers.pytorch_balanced_sampler.sampler import SamplerFactory
-from algoritms import *
+# import torch
+# import torch.nn as nn
+# import torch.nn.functional as F
+# import torch.autograd as autograd
+# from torch.autograd import Variable
+# import collections
+# import utils.commons as commons
+# import multiprocessing as mp
+# import os
+# import torch.cuda as cuda
+# from time import time
+# import json
+# import numpy as np
+# from data_helpers.pytorch_balanced_sampler.sampler import SamplerFactory
+from models.algoritms import  *
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import f1_score
 
 
 class DefaultLauncher(object):
@@ -164,20 +166,23 @@ class DefaultLauncher(object):
 
             self.val_dataloaders[val_key] = val_dataloader
 
-        self.test_dataloader = torch.utils.data.DataLoader(
-            test_data,
-            batch_size=flags.batch_size,
-            shuffle=True,
-            num_workers=mp.cpu_count(),
-            pin_memory=True,
-            worker_init_fn=commons.worker_init_fn)
+        self.test_dataloaders = {}
+
+        for test_key in test_data.keys():
+            self.test_dataloaders[test_key] = torch.utils.data.DataLoader(
+                test_data[test_key],
+                batch_size=flags.batch_size,
+                shuffle=True,
+                num_workers=mp.cpu_count(),
+                pin_memory=True,
+                worker_init_fn=commons.worker_init_fn)
 
         if not os.path.exists(flags.logs):
             os.makedirs(flags.logs)
 
     
 
-    def checkpointing(self, filename):
+    def checkpointing(self):
         if self.flags.skip_model_save:
             return
         save_dict = {
@@ -188,7 +193,7 @@ class DefaultLauncher(object):
             'model_dict': self.algorithm.cpu().state_dict(),
             'history': self.history
         }
-        torch.save(save_dict, os.path.join(self.checkpoint_path, filename))
+        torch.save(save_dict, os.path.join(self.checkpoint_path, 'model.pt'))
 
     def load_checkpoint(self, epoch):
         ckpt = self.save_epoch_fmt_task.format(epoch)
