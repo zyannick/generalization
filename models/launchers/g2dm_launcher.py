@@ -49,6 +49,8 @@ class G2DMLauncher(DefaultLauncher):
         self.setup_path()
         self.save_epoch_fmt_task = os.path.join(self.checkpoint_path,
                                                 'checkpoint_{}ep.pt')
+        self.save_epoch_fmt_domain = os.path.join(self.checkpoint_path,
+                                                'domain_{}ep.pt')
         if torch.cuda.is_available():
             self.device = "cuda"
         else:
@@ -113,7 +115,7 @@ class G2DMLauncher(DefaultLauncher):
                 ckpt = torch.load(self.save_epoch_fmt_domain.format(i + 1))
                 disc.load_state_dict(ckpt['model_state'])
                 disc.optimizer.load_state_dict(ckpt['optimizer_disc_state'])
-                self.scheduler_disc_list[i].load_state_dict(
+                self.algorithm.scheduler_disc_list[i].load_state_dict(
                     ckpt['scheduler_disc_state'])
 
         else:
@@ -216,127 +218,6 @@ class G2DMLauncher(DefaultLauncher):
                 if self.current_epoch % self.flags.save_every:
                     self.checkpointing()
 
-    # def train_workflow(self):
-    #
-    #     max_lr_t = list(self.algorithm.optimizer_task.param_groups)[-1]['initial_lr']
-    #
-    #     max_lr_d = list(self.algorithm.domain_discriminator_list[0].optimizer.param_groups)[-1]['initial_lr']
-    #
-    #     while self.cur_epoch < self.flags.n_epochs:
-    #
-    #         step_start_time = time()
-    #
-    #         step_vals = {}
-    #
-    #         inputs = []
-    #         labels = []
-    #         domains = []
-    #
-    #         nb_iterations = 0
-    #
-    #         again = True
-    #
-    #         cur_loss_task = 0
-    #         cur_hypervolume = 0
-    #         cur_loss_total = 0
-    #
-    #         while again:
-    #             for domain_key in self.train_iters.keys():
-    #                 again = False
-    #                 try:
-    #                     x_samples, y_samples, d_samples = next(self.train_iters[domain_key])
-    #                 except:
-    #                     x_samples, y_samples, d_samples = None, None, None
-    #
-    #                 if (x_samples is not None) and (y_samples is not None) and (d_samples is not None):
-    #                     inputs.append(x_samples)
-    #                     labels.append(y_samples)
-    #                     domains.append(d_samples)
-    #                     again = True
-    #
-    #             inputs = torch.cat(inputs)
-    #             labels = torch.cat(labels)
-    #             domains = torch.cat(domains)
-    #
-    #             inputs = inputs.cuda()
-    #             labels = labels.cuda()
-    #             domains = domains.cuda()
-    #
-    #             iter_values = self.algorithm.update(inputs, labels, domains)
-    #             nb_iterations += 1
-    #             step_vals.update(iter_values)
-    #
-    #             lr_t = max_lr_t  # / (1. + 10 * p)**0.75 #
-    #             lr_d = max_lr_d  # / (1. + 10 * p)**0.75 #
-    #
-    #             print('Epoch {}/{} | Alpha = {:1.3} | Lr_task = {:1.4} | Lr_dis = {:1.4} '.format(self.cur_epoch + 1, self.flags.n_epochs, self.alpha, lr_t, lr_d))
-    #
-    #             cur_losses = self.algorithm.update(inputs, labels, domains)
-    #
-    #             cur_loss_task += cur_losses[0]
-    #             cur_hypervolume += cur_losses[1]
-    #             cur_loss_total += cur_losses[2]
-    #             self.total_iter += 1
-    #
-    #             if self.logging:
-    #                 self.writer.add_scalar(
-    #                     'train/task_loss', cur_losses[0], self.total_iter)
-    #                 self.writer.add_scalar(
-    #                     'train/hypervolume_loss', cur_losses[1], self.total_iter)
-    #                 self.writer.add_scalar(
-    #                     'train/total_loss', cur_losses[2], self.total_iter)
-    #
-    #         self.algorithm.history['loss_task'].append(cur_loss_task / nb_iterations)
-    #         self.algorithm.history['hypervolume'].append(cur_hypervolume / nb_iterations)
-    #
-    #         if self.logging:
-    #             self.writer.flush()
-    #
-    #         print('Current task loss: {}.'.format(cur_loss_task / nb_iterations))
-    #         print('Current hypervolume: {}.'.format(cur_hypervolume / nb_iterations))
-    #
-    #         accuracy_source = self.test_workflow(self.test_source_loader)
-    #
-    #         self.algorithm.history['accuracy_source'].append(
-    #             test(self.test_source_loader, self.feature_extractor, self.task_classifier,
-    #                  self.domain_discriminator_list, self.device, source_target='source', epoch=self.cur_epoch,
-    #                  tb_writer=self.writer if self.logging else None))
-    #         self.algorithm.history['accuracy_target'].append(
-    #             test(self.target_loader, self.feature_extractor, self.task_classifier, self.domain_discriminator_list,
-    #                  self.device, source_target='target', epoch=self.cur_epoch,
-    #                  tb_writer=self.writer if self.logging else None))
-    #
-    #         idx = np.argmax(self.history['accuracy_source'])
-    #
-    #         print(
-    #             'Valid. on SOURCE data - Current acc., best acc., best acc target, and epoch: {:0.4f}, {:0.4f}, {:0.4f}, {}'.format(
-    #                 self.history['accuracy_source'][-1], np.max(
-    #                     self.history['accuracy_source']),
-    #                 self.history['accuracy_target'][idx], 1 + np.argmax(self.history['accuracy_source'])))
-    #         print('Valid. on TARGET data - Current acc., best acc., and epoch: {:0.4f}, {:0.4f}, {}'.format(
-    #             self.history['accuracy_target'][-1], np.max(
-    #                 self.history['accuracy_target']),
-    #             1 + np.argmax(self.history['accuracy_target'])))
-    #
-    #         if self.logging:
-    #             self.writer.add_scalar(
-    #                 'misc/LR-task', self.optimizer_task.param_groups[0]['lr'], self.total_iter)
-    #             for i, disc in enumerate(self.domain_discriminator_list):
-    #                 self.writer.add_scalar('misc/LR-disc{}'.format(i), disc.optimizer.param_groups[0]['lr'],
-    #                                        self.total_iter)
-    #
-    #         self.cur_epoch += 1
-    #
-    #         if self.save_cp and (self.cur_epoch % self.flags.save_every == 0 or self.history['accuracy_target'][-1] > np.max(
-    #                 [-np.inf] + self.history['accuracy_target'][:-1])):
-    #             self.checkpointing()
-    #
-    #     if self.logging:
-    #         self.writer.close()
-    #
-    #     idx_final = np.argmax(self.algorithm.history['accuracy_source'])
-    #
-    #     return np.max(self.algorithm.history['accuracy_target']), self.algorithm.history['accuracy_target'][-1]
 
     def test_workflow(self):
 
@@ -437,7 +318,7 @@ class G2DMLauncher(DefaultLauncher):
                     list_domain_predictions_per_domain)
                 list_domain_targets.extend(list_domain_targets_per_domain)
 
-        acc = n_correct.item() * 1.0 / n_total
+        acc = n_correct * 1.0 / n_total
 
         metrics_results = {
             'task': {
@@ -467,10 +348,3 @@ class G2DMLauncher(DefaultLauncher):
 
         return metrics_results, metrics_results_per_domain
 
-
-def extract_features(self):
-    raise NotImplementedError
-
-
-def vizualize_features(self):
-    raise NotImplementedError

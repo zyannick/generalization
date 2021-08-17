@@ -15,6 +15,8 @@
 from models.algoritms import  *
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import f1_score
+from torch.utils.tensorboard import SummaryWriter
+from datetime import datetime
 
 
 class DefaultLauncher(object):
@@ -34,8 +36,10 @@ class DefaultLauncher(object):
         self.hparams = hparams
         self.datasets = datasets
         self.checkpoint_path = checkpoint_path
+        self.logging = flags.logging
+        self.launch_mode = flags.launch_mode
         self.setup_path()
-        self.save_epoch_fmt_task = os.path.join(self.checkpoint_path,
+        self.save_epoch_model_task = os.path.join(self.checkpoint_path,
                                                 'checkpoint_{}ep.pt')
         if torch.cuda.is_available():
             self.device = "cuda"
@@ -49,6 +53,9 @@ class DefaultLauncher(object):
         self.algorithm.to(self.device)
         self.checkpoint_values = collections.defaultdict(lambda: [])
         self.current_epoch = 0
+        if self.logging:
+            self.writer = SummaryWriter(log_dir=os.path.join(
+                'runs', self.launch_mode + '_' + str(datetime.now())))
 
     def setup_path(self):
         assert (self.flags.class_balanced != self.flags.balance_sampler)
@@ -193,10 +200,10 @@ class DefaultLauncher(object):
             'model_dict': self.algorithm.cpu().state_dict(),
             'history': self.history
         }
-        torch.save(save_dict, os.path.join(self.checkpoint_path, 'model.pt'))
+        torch.save(save_dict, os.path.join(self.checkpoint_path, f'model_{self.current_epoch}.pt'))
 
     def load_checkpoint(self, epoch):
-        ckpt = self.save_epoch_fmt_task.format(epoch)
+        ckpt = self.save_epoch_model_task.format(epoch)
         ck_name = ckpt
         if os.path.isfile(ckpt):
             ckpt = torch.load(ckpt)
@@ -302,23 +309,137 @@ class DefaultLauncher(object):
                 self.checkpoint_values = collections.defaultdict(lambda: [])
 
                 if self.current_epoch % self.flags.save_every:
-                    self.checkpointing(f'model_step{self.current_epoch}.pkl')
+                    self.checkpointing()
 
-    def test_workflow(self, domain_key, loader):
-        correct = 0
-        total = 0
-        weights_offset = 0
 
-        self.algorithm.eval()
+    def test_workflow(self):
+
+        self.source_iters = {}
+        for domain_key in self.val_dataloaders.keys():
+            self.source_iters[domain_key] = iter(
+                self.val_dataloaders[domain_key])
+        self.target_iter = iter(self.test_dataloaders)
+
+        self.test_workflow_iters = {
+            'source': self.source_iters,
+            'target': self.target_iter
+        }
+
+        feature_extractor = self.algorithm.feature_extractor.eval()
+        task_classifier = self.algorithm.task_classifier.eval()
+        disc_list = self.algorithm.disc_list
+
+        for disc in disc_list:
+            disc = disc.eval()
+
+        result_dict = {}
+        result_dict_per_domain = {}
+
+        for source_target in self.test_workflow_iters.keys():
+            result_dict[source_target], result_dict_per_domain[source_target] = self.test(source_target, feature_extractor, task_classifier, disc_list)
+
+        return result_dict, result_dict_per_domain
+
+    def test(self, source_target, feature_extractor, task_classifier, disc_list):
+
+        n_total = 0
+        n_correct = 0
+
+        list_task_predictions = []
+        list_task_targets = []
+        list_domain_predictions = []
+        list_domain_targets = []
+
+        metrics_results_per_domain = {}
+
         with torch.no_grad():
-            for x, y in loader:
-                x = x.to(self.device)
-                y = y.to(self.device)
-                p = self.algorithm.predict(x)
 
-        self.algorithm.train()
+            feature_extractor = feature_extractor.to(self.device)
+            task_classifier = task_classifier.to(self.device)
 
-        return p
+            for disc in disc_list:
+                disc = disc.to(self.device)
+
+            inputs = []
+            labels = []
+            domains = []
+
+            for domain_key in self.test_workflow_iters.keys():
+
+                list_task_predictions_per_domain = []
+                list_task_targets_per_domain = []
+                list_domain_predictions_per_domain = []
+                list_domain_targets_per_domain = []
+
+                for inputs, labels, domains in self.test_workflow_iters[domain_key]:
+
+                    n_total += inputs.size(0)
+
+                    inputs = inputs.cuda()
+                    labels = labels.cuda()
+                    domains = domains.cuda()
+
+                    task_predictions, task_targets, domain_predictions, domain_labels = self.algorithm.predict(
+                        inputs, labels, domains, feature_extractor, task_classifier, disc_list, self.device, 'source')
+
+                    n_correct += task_predictions.eq(task_targets.data.view_as(
+                        task_predictions)).cpu().sum() / task_targets.size(2)
+
+                    list_task_predictions_per_domain.extend(
+                        task_predictions.tolist())
+                    list_task_targets_per_domain.extend(task_targets.tolist())
+                    list_domain_predictions_per_domain.extend(
+                        domain_predictions.tolist())
+                    list_domain_targets_per_domain.extend(
+                        domain_labels.tolist())
+
+                metrics_results_per_domain[domain_key] = {
+                    'task': {
+                        'accuracy': accuracy_score(y_true=list_task_targets_per_domain, y_pred=list_task_predictions_per_domain),
+                        'f1_score': f1_score(y_true=list_task_targets_per_domain, y_pred=list_task_predictions_per_domain, average='macro')
+                    },
+                    'domain': {
+                        'accuracy': accuracy_score(y_true=list_domain_targets_per_domain, y_pred=list_domain_predictions_per_domain),
+                        'f1_score': f1_score(y_true=list_domain_targets_per_domain, y_pred=list_domain_predictions_per_domain, average='macro')
+                    }
+
+                }
+
+                list_task_predictions.extend(list_task_predictions_per_domain)
+                list_task_targets.extend(list_task_targets_per_domain)
+                list_domain_predictions.extend(
+                    list_domain_predictions_per_domain)
+                list_domain_targets.extend(list_domain_targets_per_domain)
+
+        acc = n_correct * 1.0 / n_total
+
+        metrics_results = {
+            'task': {
+                'accuracy': accuracy_score(y_true=list_task_targets, y_pred=list_task_predictions),
+                'f1_score': f1_score(y_true=list_task_targets, y_pred=list_task_predictions, average='macro')
+            }
+        }
+
+        if source_target == 'source':
+            metrics_results['domain'] = {
+                'accuracy': accuracy_score(y_true=list_domain_targets, y_pred=list_domain_predictions),
+                'f1_score': f1_score(y_true=list_domain_targets, y_pred=list_domain_predictions, average='macro')
+            }
+
+        if self.writer is not None:
+            self.writer.add_histogram(
+                'Test/' + source_target, task_predictions, self.current_epoch)
+            self.writer.add_scalar(
+                'Test/' + source_target + '_accuracy', acc, self.current_epoch)
+
+            if source_target == 'source':
+                for i, disc in enumerate(disc_list):
+                    self.writer.add_histogram(
+                        'Test/source-D{}-pred'.format(i), domain_predictions[i], self.current_epoch)
+                    self.writer.add_pr_curve('Test/ROC-D{}'.format(i), labels=list_domain_targets,
+                                             predictions=list_domain_predictions, global_step=self.current_epoch)
+
+        return metrics_results, metrics_results_per_domain
 
     def extract_features(self):
         raise NotImplementedError
