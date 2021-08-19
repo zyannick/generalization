@@ -13,7 +13,7 @@ import torch.nn as nn
 
 from models.backbones.epi_fcr_backbones import resnet_vanilla, resnet_epi_fcr
 
-from models.algoritms import Algorithm, DefaultModel
+from models.algoritms import Algorithm
 import utils.commons as commons
 from data_helpers.pytorch_balanced_sampler.sampler import SamplerFactory
 import torch.optim as optim
@@ -97,7 +97,7 @@ class ModelAggregate(Algorithm):
             self.adjust_learning_rate()
  
         # forward with the adapted parameters
-        outputs, _ = self.network(x=x)
+        outputs = self.network(x)
         # loss
         loss = self.loss_fn(outputs, y)
 
@@ -117,7 +117,8 @@ class ModelAggregate(Algorithm):
         if flags.bn_eval == 1:
             self.network.bn_eval()
 
-    def predict(self, x):
+    def predict(self, x, y, d):
         self.network.eval()
-        return self.network(x)
+        with torch.no_grad():
+            return self.network(x)
 

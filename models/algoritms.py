@@ -67,6 +67,7 @@ class Algorithm(torch.nn.Module):
         self.save_epoch_fmt_task = os.path.join(self.checkpoint_path,
                                                 'checkpoint_{}ep.pt')
         self.update_count = 0
+        self.current_epoch = 0
         # A dictionnary containing all models
         self.setup()
         self.configure()

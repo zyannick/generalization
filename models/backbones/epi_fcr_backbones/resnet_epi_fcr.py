@@ -110,20 +110,14 @@ class ResNetClassifierModule(nn.Module):
 
 
 class DomainSpecificNN(nn.Module):
-    def __init__(self, backbone, classifier):
+    def __init__(self, backbone, classifier, num_domains):
         super(DomainSpecificNN, self).__init__()
 
-        self.feature1 = backbone
-        self.feature2 = backbone
-        self.feature3 = backbone
-
-        self.features = [self.feature1, self.feature2, self.feature3]
-
-        self.classifier1 = classifier
-        self.classifier2 = classifier
-        self.classifier3 = classifier
-
-        self.classifiers = [self.classifier1, self.classifier2, self.classifier3]
+        self.features = []
+        self.classifiers = []
+        for i in range(num_domains):
+            self.features.append(backbone)
+            self.classifiers.append(classifier)
 
     def bn_eval(self):
         for m in self.modules():

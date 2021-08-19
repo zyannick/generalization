@@ -1,18 +1,4 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.autograd as autograd
-from torch.autograd import Variable
-import collections
-import utils.commons as commons
-import multiprocessing as mp
-import os
-import torch.cuda as cuda
-from time import time
-import json
-import numpy as np
-from data_helpers.pytorch_balanced_sampler.sampler import SamplerFactory
-from algoritms import *
+
 from default_launcher import *
 
 
@@ -22,7 +8,8 @@ class EpiFCRLauncher(DefaultLauncher):
 
     def __init__(self, algorithm_dict, algorithm_name, flags, hparams, input_shape, datasets, class_idx,
                  checkpoint_path, class_balance):
-        super(EpiFCRLauncher, self).__init__()
+        super(EpiFCRLauncher, self).__init__(algorithm_dict, algorithm_name, flags, hparams, input_shape, datasets, class_idx,
+                 checkpoint_path, class_balance)
         self.train_dataloaders = {}
         self.algorithm_dict = algorithm_dict
         self.algorithm_name = algorithm_name
@@ -49,228 +36,64 @@ class EpiFCRLauncher(DefaultLauncher):
             self.algorithm.load_state_dict(algorithm_dict)
         self.algorithm.to(self.device)
         self.checkpoint_values = collections.defaultdict(lambda: [])
-        self.current_epoch = 0
+        self.iter = 0
+        self.best_accuracy_val = -1.0
 
     def setup_path(self):
-        assert (self.flags.class_balanced != self.flags.balance_sampler)
-        flags = self.flags
-
-        train_data = self.datasets['train']
-
-        val_data = self.datasets['val']
-
-        test_data = self.datasets['test']
-
-        self.dataset_sizes = {
-            x: len(self.datasets[x])
-            for x in ['train', 'val', 'test']
-        }
-
-        self.train_minibatches_iterator = {}
-
-        self.train_weights = {}
-        self.train_sampler = {}
-
-        self.val_weights = {}
-        self.val_sampler = {}
-
-        if self.flags.class_balanced:
-            for train_key in train_data.keys():
-                self.train_weights[train_key] = commons.make_weights_for_balanced_classes(train_data[train_key])
-            for val_key in val_data.keys():
-                self.val_weights[val_key] = commons.make_weights_for_balanced_classes(val_data[val_key])
-        else:
-            for train_key in train_data.keys():
-                self.train_weights[train_key] = None
-            for val_key in val_data.keys():
-                self.val_weights[val_key] = None
-
-        for train_key in train_data.keys():
-            if self.flags.balance_sampler:
-                batch_size = flags.batch_size
-                n_batches = self.dataset_sizes['train'] // batch_size
-                train_list_idx = []
-                for _, class_key in enumerate(list(self.class_idxs['train'].keys())):
-                    train_list_idx.append(self.class_idxs['train'][class_key])
-                batch_sampler = SamplerFactory().get(
-                    class_idxs=train_list_idx,
-                    batch_size=batch_size,
-                    n_batches=n_batches,
-                    alpha=self.flags.alpha_sampler,
-                    kind='fixed'
-                )
-                train_dataloader = torch.utils.data.DataLoader(
-                    train_data[train_key],
-                    num_workers=mp.cpu_count(),
-                    pin_memory=True,
-                    batch_sampler=batch_sampler,
-                    worker_init_fn=commons.worker_init_fn)
-            elif self.flags.class_balanced:
-                train_dataloader = torch.utils.data.DataLoader(
-                    train_data[train_key],
-                    batch_size=flags.batch_size,
-                    weights=self.train_weights[train_key],
-                    shuffle=True,
-                    num_workers=mp.cpu_count(),
-                    pin_memory=True,
-                    worker_init_fn=commons.worker_init_fn)
-            else:
-                train_dataloader = torch.utils.data.DataLoader(
-                    train_data[train_key],
-                    batch_size=flags.batch_size,
-                    shuffle=True,
-                    num_workers=mp.cpu_count(),
-                    pin_memory=True,
-                    worker_init_fn=commons.worker_init_fn)
-
-            self.train_dataloaders[train_key] = train_dataloader
-
-        self.val_dataloaders = {}
-
-        for val_key in val_data.keys():
-            if self.flags.balance_sampler:
-                batch_size = flags.batch_size
-                n_batches = self.dataset_sizes['val'] // batch_size
-                val_list_idx = []
-                for _, class_key in enumerate(list(self.class_idxs['val'].keys())):
-                    val_list_idx.append(self.class_idxs['val'][class_key])
-                batch_sampler = SamplerFactory().get(
-                    class_idxs=val_list_idx,
-                    batch_size=batch_size,
-                    n_batches=n_batches,
-                    alpha=self.flags.alpha_sampler,
-                    kind='fixed'
-                )
-                val_dataloader = torch.utils.data.DataLoader(
-                    val_data[val_key],
-                    num_workers=mp.cpu_count(),
-                    pin_memory=True,
-                    batch_sampler=batch_sampler,
-                    worker_init_fn=commons.worker_init_fn)
-            elif self.flags.class_balanced:
-                val_dataloader = torch.utils.data.DataLoader(
-                    val_data[val_key],
-                    batch_size=flags.batch_size,
-                    weights=self.val_weights[val_key],
-                    shuffle=True,
-                    num_workers=mp.cpu_count(),
-                    pin_memory=True,
-                    worker_init_fn=commons.worker_init_fn)
-            else:
-                val_dataloader = torch.utils.data.DataLoader(
-                    val_data[val_key],
-                    batch_size=flags.batch_size,
-                    shuffle=True,
-                    num_workers=mp.cpu_count(),
-                    pin_memory=True,
-                    worker_init_fn=commons.worker_init_fn)
-
-            self.val_dataloaders[val_key] = val_dataloader
-
-        self.test_dataloader = torch.utils.data.DataLoader(
-            test_data,
-            batch_size=flags.batch_size,
-            shuffle=True,
-            num_workers=mp.cpu_count(),
-            pin_memory=True,
-            worker_init_fn=commons.worker_init_fn)
-
-        if not os.path.exists(flags.logs):
-            os.makedirs(flags.logs)
-
-    def checkpointing(self, filename):
-        if self.flags.skip_model_save:
-            return
-        save_dict = {
-            'args': vars(self.flags),
-            'model_num_classes': self.num_classes,
-            'model_num_domains': self.num_domains,
-            'model_hparams': self.hparams,
-            'model_dict': self.algorithm.cpu().state_dict(),
-            'history': self.history
-        }
-        torch.save(save_dict, os.path.join(self.checkpoint_path, filename))
-
-    def load_checkpoint(self, epoch):
-        ckpt = self.save_epoch_fmt_task.format(epoch)
-        ck_name = ckpt
-        if os.path.isfile(ckpt):
-            ckpt = torch.load(ckpt)
-            # Load model state
-            self.algorithm.load_state_dict(ckpt['model_dict'])
-            # Load history
-            self.history = ckpt['history']
-            # Load num classes
-            self.num_classes = ckpt['model_num_classes']
-            # Load num domains
-            self.model_num_domains = ckpt['model_num_domains']
-            # Load hparams
-            self.hparams = ckpt['model_hparams']
-            # Load flags
-            self.flags = ckpt['args']
-
-            print('Checkpoint number {} loaded  ---> {}'.format(
-                epoch, ck_name))
-
-            return True
-
-        return False
+        DefaultLauncher.setup_path(self)
+        self.candidates = np.arange(0, len(self.train_dataloaders.keys()))
 
     def train_workflow(self):
 
         flags = self.flags
 
+        self.algorithm.train()
+        self.algorithm.ds_nn.train()
+        self.algorithm.agg_nn.train()
+
         self.train_iters = {}
         for domain_key in self.train_dataloaders.keys():
             self.train_iters[domain_key] = iter(self.train_dataloaders[domain_key])
 
-        self.algorithm.train()
         last_results_keys = None
-        while self.current_epoch < flags.n_epochs:
+
+        while self.iter < flags.num_iterations:
             step_start_time = time()
             step_vals = {}
 
             
-            inputs = []
-            labels = []
-            domains = []
+            inputs_all = []
+            labels_all = []
+            domains_all = []
 
-            again = True
+            for _, domain_key in enumerate(list(self.train_iters.keys())):
+                inputs, labels, domains = next(self.train_iters[domain_key])
+                inputs, labels, domains = Variable(inputs, requires_grad=False).cuda(), Variable(labels, requires_grad=False).long().cuda() , Variable(domains, requires_grad=False).long().cuda() 
+                inputs_all.append(inputs)
+                labels_all.append(labels)
+                domains_all.append(domains)
+            if self.iter <= flags.loops_warm:
+                ds_nn_values = self.algorithm.update_ds_nn(inputs, labels, domains)
+                if flags.warm_up_agg == 1 and self.iter <= flags.loops_agg_warm:
+                        agg_nn_wanm_values = self.algorithm.update_agg_nn_warm(inputs, labels, domains)
+            else:
+                ds_nn_values = self.algorithm.train_ds_nn(inputs, labels, domains)
+                agg_nn_wanm_values = self.algorithm.train_agg_nn(inputs, labels, domains)
 
-            while again:
-                for domain_key in self.train_iters.keys():
-                    again = False
-                    try:
-                        x_samples, y_samples, d_samples = next(self.train_iters[domain_key])
-                    except:
-                        x_samples, y_samples, d_samples = None, None, None
 
-                    if (x_samples is not None) and (y_samples is not None) and (d_samples is not None):
-                        inputs.append(x_samples)
-                        labels.append(y_samples)
-                        domains.append(d_samples)
-                        again = True
+            self.iter += 1
 
-                inputs = torch.cat(inputs)
-                labels = torch.cat(labels)
-                domains = torch.cat(domains)
 
-                inputs = inputs.cuda()
-                labels = labels.cuda()
-                domains = domains.cuda()
 
-                iter_values = self.algorithm.update(inputs, labels, domains)
-
-                step_vals.update(iter_values)
 
             self.checkpoint_values['step_time'].append(time() - step_start_time)
             for key, val in step_vals.items():
                 self.checkpoint_values[key].append(val)
 
-            if (self.current_epoch % self.flags.test_every == 0) or (self.current_epoch == flags.n_epochs - 1):
+            if (self.iter % self.flags.test_every == 0) or (self.iter == flags.n_epochs - 1):
                 results = {
-                    'step': self.current_epoch,
-                    'epoch': self.current_epoch / self.flags.steps_per_epoch,
+                    'step': self.iter,
+                    'epoch': self.iter / self.flags.steps_per_epoch,
                 }
 
                 for key, val in self.checkpoint_values.items():
@@ -298,24 +121,94 @@ class EpiFCRLauncher(DefaultLauncher):
                 self.algorithm_dict = self.algorithm.state_dict()
                 self.checkpoint_values = collections.defaultdict(lambda: [])
 
-                if self.current_epoch % self.flags.save_every:
-                    self.checkpointing(f'model_step{self.current_epoch}.pkl')
+                if self.iter % self.flags.save_every:
+                    self.checkpointing(f'model_step{self.iter}.pkl')
 
-    def test_workflow(self, domain_key, loader):
-        correct = 0
-        total = 0
-        weights_offset = 0
+    def test_workflow(self):
 
-        self.algorithm.eval()
+        self.source_iters = {}
+        for domain_key in self.val_dataloaders.keys():
+            self.source_iters[domain_key] = iter(
+                self.val_dataloaders[domain_key])
+        self.target_iter = iter(self.test_dataloaders)
+
+        self.test_workflow_iters = {
+            'source': self.source_iters,
+            'target': self.target_iter
+        }
+
+        result_dict = {}
+        result_dict_per_domain = {}
+
+        accuracies = []
+        result_dict['source'], result_dict_per_domain['source'] = self.test('source')
+
+        if result_dict['source']['accuracy'] > self.best_accuracy_val:
+            self.best_accuracy_val = result_dict['source']['accuracy']
+            result_dict['target'], result_dict_per_domain['target'] = self.test('target')
+
+    def test(self, source_target):
+
+
+        n_total = 0
+        n_correct = 0
+
+        list_task_predictions = []
+        list_task_targets = []
+
+        metrics_results_per_domain = {}
+
         with torch.no_grad():
-            for x, y in loader:
-                x = x.to(self.device)
-                y = y.to(self.device)
-                p = self.algorithm.predict(x)
 
-        self.algorithm.train()
+            for domain_key in self.test_workflow_iters[source_target].keys():
 
-        return p
+                list_task_predictions_per_domain = []
+                list_task_targets_per_domain = []
+
+                for inputs, labels, domains in self.test_workflow_iters[source_target][domain_key]:
+
+                    n_total += inputs.size(0)
+
+                    inputs = inputs.cuda()
+                    labels = labels.cuda()
+                    domains = domains.cuda()
+
+                    task_predictions, task_targets = self.algorithm.predict( inputs, labels, domains)
+
+                    n_correct += task_predictions.eq(task_targets.data.view_as(
+                        task_predictions)).cpu().sum() / task_targets.size(2)
+
+                    list_task_predictions_per_domain.extend( task_predictions.tolist())
+                    list_task_targets_per_domain.extend(task_targets.tolist())
+
+                metrics_results_per_domain[domain_key] = {
+                    'task': {
+                        'accuracy': accuracy_score(y_true=list_task_targets_per_domain, y_pred=list_task_predictions_per_domain),
+                        'f1_score': f1_score(y_true=list_task_targets_per_domain, y_pred=list_task_predictions_per_domain, average='macro')
+                    }
+                }
+
+                list_task_predictions.extend(list_task_predictions_per_domain)
+                list_task_targets.extend(list_task_targets_per_domain)
+
+
+        acc = n_correct * 1.0 / n_total
+
+        metrics_results = {
+            'task': {
+                'accuracy': accuracy_score(y_true=list_task_targets, y_pred=list_task_predictions),
+                'f1_score': f1_score(y_true=list_task_targets, y_pred=list_task_predictions, average='macro')
+            }
+        }
+
+
+        if self.writer is not None:
+            self.writer.add_histogram(
+                'Test/' + source_target, task_predictions, self.current_epoch)
+            self.writer.add_scalar(
+                'Test/' + source_target + '_accuracy', acc, self.current_epoch)
+
+        return metrics_results, metrics_results_per_domain
 
     def extract_features(self):
         raise NotImplementedError

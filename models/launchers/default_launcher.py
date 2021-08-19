@@ -232,7 +232,8 @@ class DefaultLauncher(object):
 
         self.train_iters = {}
         for domain_key in self.train_dataloaders.keys():
-            self.train_iters[domain_key] = iter(self.train_dataloaders[domain_key])
+            self.train_iters[domain_key] = iter(
+                self.train_dataloaders[domain_key])
 
         self.algorithm.train()
         last_results_keys = None
@@ -251,7 +252,8 @@ class DefaultLauncher(object):
                 for domain_key in self.train_iters.keys():
                     again = False
                     try:
-                        x_samples, y_samples, d_samples = next(self.train_iters[domain_key])
+                        x_samples, y_samples, d_samples = next(
+                            self.train_iters[domain_key])
                     except:
                         x_samples, y_samples, d_samples = None, None, None
 
@@ -273,7 +275,8 @@ class DefaultLauncher(object):
 
                 step_vals.update(iter_values)
 
-            self.checkpoint_values['step_time'].append(time() - step_start_time)
+            self.checkpoint_values['step_time'].append(
+                time() - step_start_time)
             for key, val in step_vals.items():
                 self.checkpoint_values[key].append(val)
 
@@ -286,30 +289,34 @@ class DefaultLauncher(object):
                 for key, val in self.checkpoint_values.items():
                     results[key] = np.mean(val)
 
-                for domain_key, loader in self.val_dataloaders:
-                    acc = self.test_workflow(loader, domain_key)
-                    results[domain_key + '_acc'] = acc
+                result_dict, result_dict_per_domain = self.test_workflow()
+
+                for domain_key in self.test_dataloaders.keys():
+                    results[domain_key + '_acc'] = result_dict_per_domain['target'][domain_key]['accuracy']
 
                 results_keys = sorted(results.keys())
                 if results_keys != last_results_keys:
                     commons.print_row(results_keys, colwidth=12)
                     last_results_keys = results_keys
-                commons.print_row([results[key] for key in results_keys], colwidth=12)
+                commons.print_row([results[key]
+                                   for key in results_keys], colwidth=12)
 
                 results.update({
                     'hparams': self.hparams,
                     'args': vars(self.flags)
                 })
 
-                epochs_path = os.path.join(self.checkpoint_path, 'results.jsonl')
+                epochs_path = os.path.join(
+                    self.checkpoint_path, 'results.jsonl')
                 with open(epochs_path, 'a') as f:
                     f.write(json.dumps(results, sort_keys=True) + "\n")
 
-                self.algorithm_dict = self.algorithm.state_dict()
+                #self.algorithm_dict = self.algorithm.state_dict()
                 self.checkpoint_values = collections.defaultdict(lambda: [])
 
                 if self.current_epoch % self.flags.save_every:
                     self.checkpointing()
+
 
 
     def test_workflow(self):
@@ -360,18 +367,18 @@ class DefaultLauncher(object):
             for disc in disc_list:
                 disc = disc.to(self.device)
 
-            inputs = []
-            labels = []
-            domains = []
+            # inputs = []
+            # labels = []
+            # domains = []
 
-            for domain_key in self.test_workflow_iters.keys():
+            for domain_key in self.test_workflow_iters[source_target].keys():
 
                 list_task_predictions_per_domain = []
                 list_task_targets_per_domain = []
                 list_domain_predictions_per_domain = []
                 list_domain_targets_per_domain = []
 
-                for inputs, labels, domains in self.test_workflow_iters[domain_key]:
+                for inputs, labels, domains in self.test_workflow_iters[source_target][domain_key]:
 
                     n_total += inputs.size(0)
 
