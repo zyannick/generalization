@@ -134,9 +134,7 @@ correspondance = {'walk': 0, 'handpickup': 1, 'lieonbedthensit': 2,
 def make_dataset(split, data_root, input_mode, num_classes, nb_frames_per_shot):
 
     split_file = glob(os.path.join(data_root, '*.json'))[0]
-
     dataset = []
-
     # print(os.getcwd() )
     with open(split_file, 'r') as f:
         data = json.load(f)
@@ -260,6 +258,7 @@ class Video_Datasets(data_utl.Dataset):
         self.data_aug = flags.data_aug
         self.affine_transform = flags.affine_transform
         self.taille = len(self.data)
+
         # print("dataset prepared cme")
 
     def get_video(self, index):

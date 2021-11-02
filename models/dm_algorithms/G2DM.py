@@ -279,5 +279,5 @@ class G2DM(Algorithm):
         return task_predictions, task_target, predictions_domain, labels_domain
 
 
-def update_nadir_point(self, losses_list):
-    self.nadir = float(np.max(losses_list) * self.nadir_slack + 1e-8)
+    def update_nadir_point(self, losses_list):
+        self.nadir = float(np.max(losses_list) * self.nadir_slack + 1e-8)

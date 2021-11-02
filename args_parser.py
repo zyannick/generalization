@@ -8,7 +8,7 @@ def boolean_string(s):
 
 
 def global_parser():
-    parser = argparse.ArgumentParser(description='Single Domain generalization')
+    parser = argparse.ArgumentParser(description='Domain generalization')
     parser.add_argument('--input_mode', type=str, default='rgb', help='raw, flow, idt')
     parser.add_argument('--middle_transform', type=str, default=None, help='flow, None')
     parser.add_argument('--checkpoint_path', default='checkpoint', type=str)
@@ -18,7 +18,7 @@ def global_parser():
     parser.add_argument('--number_of_domain', type=int, default=3)
     parser.add_argument('--domains_list', type=list,  default=['raw_rgb', 'sobel_0_3', 'laplace_0_3'])
     parser.add_argument('--feature_backbone', default='i3d', type=str, help='i3d, r2p1d, x3d, vit')
-    parser.add_argument('--source_dir', default='five_fps_cme_sep', type=str)
+    parser.add_argument('--source_dir', default='cmd', type=str)
     parser.add_argument('--target_dir', default='baga', type=str)
 
     parser.add_argument('--algorithm', type=str, default="ERM")
@@ -32,13 +32,14 @@ def global_parser():
     #data setting
     parser.add_argument('--affine_transform', type=boolean_string, default=True)
     parser.add_argument('--affine_transform', type=boolean_string, default=True)
-    parser.add_argument('--label_smoothing', type=boolean_string, default=False)
 
-    #launch settings
-    parser.add_argument('--gpus', type=str, default='0,1,2,3')
+
+    #train settings
+    parser.add_argument('--gpus', type=str, default='0')
     parser.add_argument('--epochs', type=int, default=20, metavar='N', help='number of epochs to train (default: 50)')
     parser.add_argument('--checkpoint-epoch', type=int, default=8, metavar='N', help='epoch to load for checkpointing. If None, training starts from scratch')
     parser.add_argument('--checkpoint-path', type=str, default='checkpoint', metavar='Path', help='Path for checkpointing')
+    parser.add_argument('--label_smoothing', type=boolean_string, default=False)
  
 
     return parser

@@ -6,13 +6,13 @@ from default_launcher import *
 
 class EpiFCRLauncher(DefaultLauncher):
 
-    def __init__(self, algorithm_dict, algorithm_name, flags, hparams, input_shape, datasets, class_idx,
+    def __init__(self, algorithm_dict, algorithm_class, flags, hparams, input_shape, datasets, class_idx,
                  checkpoint_path, class_balance):
-        super(EpiFCRLauncher, self).__init__(algorithm_dict, algorithm_name, flags, hparams, input_shape, datasets, class_idx,
-                 checkpoint_path, class_balance)
+        super(EpiFCRLauncher, self).__init__(algorithm_dict, algorithm_class, flags, hparams, input_shape, datasets, class_idx,
+                                             checkpoint_path, class_balance)
         self.train_dataloaders = {}
         self.algorithm_dict = algorithm_dict
-        self.algorithm_name = algorithm_name
+        self.algorithm_name = algorithm_class
         self.class_balance = class_balance
         self.input_shape = input_shape
         self.class_idxs = class_idx
@@ -36,7 +36,7 @@ class EpiFCRLauncher(DefaultLauncher):
             self.algorithm.load_state_dict(algorithm_dict)
         self.algorithm.to(self.device)
         self.checkpoint_values = collections.defaultdict(lambda: [])
-        self.iter = 0
+        self.iteration = 0
         self.best_accuracy_val = -1.0
 
     def setup_path(self):
@@ -57,72 +57,72 @@ class EpiFCRLauncher(DefaultLauncher):
 
         last_results_keys = None
 
-        while self.iter < flags.num_iterations:
+        while self.iteration < flags.num_iterations:
             step_start_time = time()
             step_vals = {}
-
-            
             inputs_all = []
             labels_all = []
             domains_all = []
 
             for _, domain_key in enumerate(list(self.train_iters.keys())):
                 inputs, labels, domains = next(self.train_iters[domain_key])
-                inputs, labels, domains = Variable(inputs, requires_grad=False).cuda(), Variable(labels, requires_grad=False).long().cuda() , Variable(domains, requires_grad=False).long().cuda() 
+                inputs, labels, domains = Variable(inputs, requires_grad=False).cuda(),\
+                                          Variable(labels, requires_grad=False).long().cuda() ,\
+                                          Variable(domains, requires_grad=False).long().cuda()
                 inputs_all.append(inputs)
                 labels_all.append(labels)
                 domains_all.append(domains)
-            if self.iter <= flags.loops_warm:
-                ds_nn_values = self.algorithm.update_ds_nn(inputs, labels, domains)
-                if flags.warm_up_agg == 1 and self.iter <= flags.loops_agg_warm:
-                        agg_nn_wanm_values = self.algorithm.update_agg_nn_warm(inputs, labels, domains)
+            if self.iteration <= flags.loops_warm:
+                ds_nn_values = self.algorithm.update_ds_nn(inputs_all, labels_all, domains_all)
+                if flags.warm_up_agg == 1 and self.iteration <= flags.loops_agg_warm:
+                        agg_nn_wanm_values = self.algorithm.update_agg_nn_warm(inputs_all, labels_all, domains_all)
             else:
-                ds_nn_values = self.algorithm.train_ds_nn(inputs, labels, domains)
-                agg_nn_wanm_values = self.algorithm.train_agg_nn(inputs, labels, domains)
+                ds_nn_values = self.algorithm.train_ds_nn(inputs_all, labels_all, domains_all)
+                agg_nn_wanm_values = self.algorithm.train_agg_nn(inputs_all, labels_all, domains_all)
 
-
-            self.iter += 1
-
-
-
+            self.algorithm.iteration += 1
+            self.iteration += 1
 
             self.checkpoint_values['step_time'].append(time() - step_start_time)
             for key, val in step_vals.items():
                 self.checkpoint_values[key].append(val)
 
-            if (self.iter % self.flags.test_every == 0) or (self.iter == flags.n_epochs - 1):
+            if (self.iteration % self.flags.test_every == 0) or (self.iteration == flags.n_epochs - 1):
                 results = {
-                    'step': self.iter,
-                    'epoch': self.iter / self.flags.steps_per_epoch,
+                    'step': self.iteration,
+                    'epoch': self.iteration / self.flags.steps_per_epoch,
                 }
 
                 for key, val in self.checkpoint_values.items():
                     results[key] = np.mean(val)
 
-                for domain_key, loader in self.val_dataloaders:
-                    acc = self.test_workflow(loader, domain_key)
-                    results[domain_key + '_acc'] = acc
+                result_dict, result_dict_per_domain = self.test_workflow()
+
+                for domain_key in self.test_dataloaders.keys():
+                    results[domain_key + '_acc'] = result_dict_per_domain['target'][domain_key]['accuracy']
 
                 results_keys = sorted(results.keys())
                 if results_keys != last_results_keys:
                     commons.print_row(results_keys, colwidth=12)
                     last_results_keys = results_keys
-                commons.print_row([results[key] for key in results_keys], colwidth=12)
+                commons.print_row([results[key]
+                                   for key in results_keys], colwidth=12)
 
                 results.update({
                     'hparams': self.hparams,
                     'args': vars(self.flags)
                 })
 
-                epochs_path = os.path.join(self.checkpoint_path, 'results.jsonl')
+                epochs_path = os.path.join(
+                    self.checkpoint_path, 'results.jsonl')
                 with open(epochs_path, 'a') as f:
                     f.write(json.dumps(results, sort_keys=True) + "\n")
 
-                self.algorithm_dict = self.algorithm.state_dict()
+                # self.algorithm_dict = self.algorithm.state_dict()
                 self.checkpoint_values = collections.defaultdict(lambda: [])
 
-                if self.iter % self.flags.save_every:
-                    self.checkpointing(f'model_step{self.iter}.pkl')
+                if self.current_epoch % self.flags.save_every:
+                    self.checkpointing()
 
     def test_workflow(self):
 
@@ -140,16 +140,17 @@ class EpiFCRLauncher(DefaultLauncher):
         result_dict = {}
         result_dict_per_domain = {}
 
-        accuracies = []
         result_dict['source'], result_dict_per_domain['source'] = self.test('source')
 
         if result_dict['source']['accuracy'] > self.best_accuracy_val:
             self.best_accuracy_val = result_dict['source']['accuracy']
             result_dict['target'], result_dict_per_domain['target'] = self.test('target')
 
+        return result_dict, result_dict_per_domain
+
+
+
     def test(self, source_target):
-
-
         n_total = 0
         n_correct = 0
 
@@ -169,14 +170,13 @@ class EpiFCRLauncher(DefaultLauncher):
 
                     n_total += inputs.size(0)
 
-                    inputs = inputs.cuda()
-                    labels = labels.cuda()
-                    domains = domains.cuda()
+                    inputs, labels, domains = Variable(inputs, requires_grad=False).cuda(), \
+                                              Variable(labels, requires_grad=False).long().cuda(), \
+                                              Variable(domains, requires_grad=False).long().cuda()
 
                     task_predictions, task_targets = self.algorithm.predict( inputs, labels, domains)
 
-                    n_correct += task_predictions.eq(task_targets.data.view_as(
-                        task_predictions)).cpu().sum() / task_targets.size(2)
+                    n_correct += task_predictions.eq(task_targets.data.view_as(task_predictions)).cpu().sum() / task_targets.size(2)
 
                     list_task_predictions_per_domain.extend( task_predictions.tolist())
                     list_task_targets_per_domain.extend(task_targets.tolist())
@@ -190,7 +190,6 @@ class EpiFCRLauncher(DefaultLauncher):
 
                 list_task_predictions.extend(list_task_predictions_per_domain)
                 list_task_targets.extend(list_task_targets_per_domain)
-
 
         acc = n_correct * 1.0 / n_total
 

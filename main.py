@@ -11,10 +11,12 @@ import random
 from tqdm import tqdm
 import numpy as np
 import setproctitle
-from utils import commons, system_info
+from utils import commons
+
 import hparams_registry
 import json
 from model_loader import *
+
 
 from args_parser import global_parser
 
@@ -67,9 +69,6 @@ def running(run):
     else:
         flags.device = "cpu"
 
-    
-
-
     # Setting seed
     if flags.seed is None:
         random.seed(seeds[run])
@@ -87,7 +86,7 @@ def running(run):
         checkpoint_path = os.path.join(
             flags.checkpoint_path, flags.target + '_' + train_mode + '_seed' + str(flags.seed))
 
-    system_info()
+    commons.system_info()
 
     transformations = {}
 
@@ -120,20 +119,18 @@ def running(run):
     datasets['train'] = train_data
     datasets['val'] = val_data
     datasets['test'] = test_data
-    
-    model_obj = get_model(flags, hparams, datasets)
+    class_idx = {}
 
-    print(flags.batch_size)
+    
+    algorithm_class = get_algorithm(flags)
+    launcher_class = get_launcher(flags)
+
+    launcher_object = launcher_class(flags.dm_model, algorithm_class, flags, hparams, flags.input_shape, datasets, class_idx, flags.checkpoint_path, flags.class_balance)
+
+    launcher_object.train_workflow()
 
     setproctitle.setproctitle(train_mode)
 
-
-    if flags.phase == 'train':
-        model_obj.training()
-    elif flags.phase == 'extract_features':
-        model_obj.extract_features()
-    elif flags.phase == 'vizualize':
-        model_obj.visualize_features_maps()
 
 
 def runs():
@@ -143,11 +140,10 @@ def runs():
 
 
 if __name__ == '__main__':
-
     # need to add argparse
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = flags.gpus
-    system_info()
+    commons.system_info()
     runs()
 
 

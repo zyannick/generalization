@@ -49,12 +49,11 @@ class ModelAggregate(Algorithm):
             os.makedirs(flags.logs)
         flags_log = os.path.join(flags.logs, 'flags_log.txt')
         commons.write_log(flags, flags_log)
-        self.load_state_dict(flags, self.network)
+        # self.load_state_dict(flags, self.network)
 
     @property
     def factory(self):
         return {'network': self.network}
-
 
     def configure(self):
         for name, para in self.network.named_parameters():
@@ -79,13 +78,6 @@ class ModelAggregate(Algorithm):
         self.scheduler = lr_scheduler.StepLR(optimizer=self.optimizer, step_size=self.flags.step_size, gamma=0.1)
         self.loss_fn = torch.nn.CrossEntropyLoss()
 
-    def adjust_learning_rate(self, flags, epoch=1, every_n=30):
-        """Sets the learning rate to the initial LR decayed by 10 every n epoch epochs"""
-        every_n_epoch = every_n  # n_epoch/n_step
-        lr = flags.init_lr * (0.1**(epoch // every_n_epoch))
-        for param_group in self.optimizer.param_groups:
-            param_group['lr'] = lr
-        self.current_lr = lr
    
     def update(self, x, y, d):
         self.network.train()

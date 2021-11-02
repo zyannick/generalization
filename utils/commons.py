@@ -10,7 +10,20 @@ import operator
 import hashlib
 from collections import Counter
 import sys
+import torchvision
 
+
+def system_info():
+    import torch.cuda as cuda
+    print(sys.version, "\n")
+    print("PyTorch {}".format(torch.__version__), "\n")
+    print("Torch-vision {}".format(torchvision.__version__), "\n")
+    print("Available devices:")
+    if cuda.is_available():
+        for i in range(cuda.device_count()):
+            print("{}: {}".format(i, cuda.get_device_name(i)))
+    else:
+        print("CPUs")
 
 def make_weights_for_balanced_classes(dataset):
     counts = Counter()

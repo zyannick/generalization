@@ -8,10 +8,10 @@ import torch.utils.model_zoo as model_zoo
 from torch.autograd import Variable
 from torch.optim import lr_scheduler
 import torch
+import torch.nn.functional as F
 
 from models.backbones.epi_fcr_backbones import resnet_vanilla, resnet_epi_fcr
 
-from models.algoritms import DefaultModel
 import utils.commons as commons
 from data_helpers.pytorch_balanced_sampler.sampler import SamplerFactory
 import torch.optim as optim
@@ -24,14 +24,20 @@ from models.dm_algorithms.EPI_FCR_AGG import ModelAggregate
 import numpy as np
 
 
+def get_preds(logits):
+    class_output = F.softmax(logits, dim=1)
+    pred_task = class_output.data.max(1, keepdim=True)[1]
+    return pred_task
+
+
+
 class ModelEpiFCR(ModelAggregate):
-    def __init__(self, flags):
-        ModelAggregate.__init__(self, flags)
+    def __init__(self, flags, hparams, input_shape, class_balance):
+        ModelAggregate.__init__(self, flags, hparams, input_shape, class_balance)
+        self.iter = 0
 
     def configure(self):
-
         self.device = next(self.network.parameters()).device
-
         for name, para in self.ds_nn.named_parameters():
             print(name, para.size())
         for name, para in self.agg_nn.named_parameters():
@@ -74,15 +80,16 @@ class ModelEpiFCR(ModelAggregate):
 
         self.best_accuracy_val = -1.0
 
-    
 
     def bn_process(self, flags):
         if flags.bn_eval == 1:
             self.ds_nn.bn_eval()
             self.agg_nn.bn_eval()
 
-    def update_agg_nn(self, x, y , d, flags):
+    def update_agg_nn(self, x, y , d):
         assert(len(x) == len(y))
+
+        taille = len(x)
 
         candidates = np.arange(0, len(x))
 
@@ -94,20 +101,14 @@ class ModelEpiFCR(ModelAggregate):
 
         self.scheduler_agg.step()
 
-        list_sources_keys = list(self.train_dataloaders.keys())
-
         # get the inputs and labels from the data reader
         agg_xent_loss = 0.0
         epir_loss = 0.0
         epic_loss = 0.0
         epif_loss = 0.0
-        for index in range(len(list_sources_keys)):
-            source_key = list_sources_keys[index]
-            source_loader = self.train_dataloaders[source_key]
-            inputs_train, labels_train = source_loader
-            # wrap the inputs and labels in Variable
-            inputs, labels = Variable(inputs_train, requires_grad=False).cuda(),  Variable(labels_train, requires_grad=False).long().cuda()
-            # forward
+        for index in range(taille):
+            inputs, labels, domains = x[index], y[index], d[index]
+             # forward
             outputs_agg, outputs_rand, _ = self.agg_nn(x=inputs, agg_only=False)
 
             # loss
@@ -115,11 +116,11 @@ class ModelEpiFCR(ModelAggregate):
             epir_loss += self.loss_fn(outputs_rand, labels) * self.loss_weight_epir
             if index == index_val:
                 assert index != index_trn
-                if ite >= flags.ite_train_epi_c:
+                if self.iter >= self.flags.ite_train_epi_c:
                     net = self.ds_nn.features[index_trn](inputs)
                     outputs_val, _ = self.agg_nn.classifier(net)
                     epic_loss += self.loss_fn(outputs_val, labels) * self.loss_weight_epic
-                if ite >= flags.ite_train_epi_f:
+                if self.iter >= self.flags.ite_train_epi_f:
                     net = self.agg_nn.feature(inputs)
                     outputs_val, _ = self.ds_nn.classifiers[index_trn](net)
                     epif_loss += self.loss_fn(outputs_val, labels) * self.loss_weight_epif
@@ -169,75 +170,29 @@ class ModelEpiFCR(ModelAggregate):
         # optimize the parameters
         self.optimizer_ds_nn.step()
 
-    def test_workflow(self, validation_loaders, flags, ite, prefix=''):
-
-        accuracies = []
-        for count, (_, val_loader) in enumerate(validation_loaders):
-            accuracy_val = self.test(val_loader=val_loader, flags=flags, ite=ite,
-                                     log_dir=flags.logs, log_prefix='val_index_{}'.format(count))
-
-            accuracies.append(accuracy_val)
-
-        mean_acc = np.mean(accuracies)
-
-        if mean_acc > self.best_accuracy_val:
-            self.best_accuracy_val = mean_acc
-
-            acc_test = self.test(val_loader=self.test_dataloader, flags=flags, ite=ite,
-                                 log_dir=flags.logs, log_prefix='dg_test')
-
-            f = open(os.path.join(flags.logs, 'Best_val.txt'), mode='a')
-            f.write(
-                'ite:{}, best val accuracy:{}, test accuracy:{}\n'.format(ite, self.best_accuracy_val,
-                                                                          acc_test))
-            f.close()
-
-            if not os.path.exists(flags.model_path):
-                os.makedirs(flags.model_path)
-
-            outfile = os.path.join(flags.model_path, '{}best_agg.tar'.format(prefix))
-            torch.save({'ite': ite, 'state': self.agg_nn.state_dict()}, outfile)
 
     def predict(self, x, y , d):
 
         # switch on the network test mode
         self.agg_nn.eval()
 
-        test_image_preds = []
-        ground_truth = []
+        with torch.no_grad():
+            logits = self.agg_nn(x, agg_only=True)
 
-        for inputs_test, labels_test in val_loader:
-            inputs = Variable(inputs_test, requires_grad=False).cuda()
-            tuples = self.agg_nn(inputs, agg_only=True)
+            task_predictions, _, _ = get_preds(logits).data.numpy()
+            task_target = get_preds(y).data.numpy()
 
-            predictions = tuples[-1]['Predictions']
-            predictions = predictions.cpu().data.numpy()
-            test_image_preds.append(predictions)
-            ground_truth.append(labels_test)
-
-        accuracy = commons.compute_accuracy(predictions=predictions, labels=labels_test)
-        print('----------accuracy test----------:', accuracy)
-
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-
-        f = open(os.path.join(log_dir, '{}.txt'.format(log_prefix)), mode='a')
-        f.write('ite:{}, accuracy:{}\n'.format(ite, accuracy))
-        f.close()
-
-        # switch on the network train mode
         self.agg_nn.train()
-        self.bn_process(flags)
 
-        return accuracy
+        return task_predictions, task_target
 
-    def update(self, x, y, d):
-        flags = self.flags
-        if self.current_epoch <= flags.loops_warm:
-            self.update_ds_nn()
-            if flags.warm_up_agg == 1 and self.current_epoch <= flags.loops_agg_warm:
-                self.update_agg_nn_warm()
-        else:
-            self.update_ds_nn()
-            self.update_agg_nn()
+    # def update(self, x, y, d):
+    #     flags = self.flags
+    #     if self.current_epoch <= flags.loops_warm:
+    #         self.update_ds_nn(x, y, d)
+    #         if flags.warm_up_agg == 1 and self.current_epoch <= flags.loops_agg_warm:
+    #             self.update_agg_nn_warm(x, y, d)
+    #     else:
+    #         self.update_ds_nn(x, y, d)
+    #         self.update_agg_nn(x, y, d)
 

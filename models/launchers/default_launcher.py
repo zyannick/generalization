@@ -21,12 +21,11 @@ from datetime import datetime
 
 class DefaultLauncher(object):
 
-    def __init__(self, algorithm_dict, algorithm_name, flags, hparams, input_shape, datasets, class_idx,
+    def __init__(self, algorithm_class, flags, hparams, input_shape, datasets, class_idx,
                  checkpoint_path, class_balance):
         super(DefaultLauncher, self).__init__()
         self.train_dataloaders = {}
-        self.algorithm_dict = algorithm_dict
-        self.algorithm_name = algorithm_name
+        self.algorithm_class = algorithm_class
         self.class_balance = class_balance
         self.input_shape = input_shape
         self.class_idxs = class_idx
@@ -45,12 +44,11 @@ class DefaultLauncher(object):
             self.device = "cuda"
         else:
             self.device = "cpu"
-        self.algorithm_class = get_algorithm_class(self.algorithm_name)
         self.algorithm = self.algorithm_class(flags, hparams, input_shape, datasets, class_idx, checkpoint_path,
                                               class_balance)
-        if self.algorithm_dict is not None:
-            self.algorithm.load_state_dict(algorithm_dict)
-        self.algorithm.to(self.device)
+        # if self.algorithm_dict is not None:
+        #     self.algorithm.load_state_dict(algorithm_dict)
+        # self.algorithm.to(self.device)
         self.checkpoint_values = collections.defaultdict(lambda: [])
         self.current_epoch = 0
         if self.logging:
@@ -267,9 +265,7 @@ class DefaultLauncher(object):
                 labels = torch.cat(labels)
                 domains = torch.cat(domains)
 
-                inputs = inputs.cuda()
-                labels = labels.cuda()
-                domains = domains.cuda()
+                inputs, labels, domains = Variable(inputs, requires_grad=False).cuda(), Variable(labels, requires_grad=False).long().cuda(), Variable( domains, requires_grad=False).long().cuda()
 
                 iter_values = self.algorithm.update(inputs, labels, domains)
 
@@ -332,22 +328,15 @@ class DefaultLauncher(object):
             'target': self.target_iter
         }
 
-        feature_extractor = self.algorithm.feature_extractor.eval()
-        task_classifier = self.algorithm.task_classifier.eval()
-        disc_list = self.algorithm.disc_list
-
-        for disc in disc_list:
-            disc = disc.eval()
-
         result_dict = {}
         result_dict_per_domain = {}
 
         for source_target in self.test_workflow_iters.keys():
-            result_dict[source_target], result_dict_per_domain[source_target] = self.test(source_target, feature_extractor, task_classifier, disc_list)
+            result_dict[source_target], result_dict_per_domain[source_target] = self.test(source_target)
 
         return result_dict, result_dict_per_domain
 
-    def test(self, source_target, feature_extractor, task_classifier, disc_list):
+    def test(self, source_target):
 
         n_total = 0
         n_correct = 0
@@ -361,62 +350,36 @@ class DefaultLauncher(object):
 
         with torch.no_grad():
 
-            feature_extractor = feature_extractor.to(self.device)
-            task_classifier = task_classifier.to(self.device)
-
-            for disc in disc_list:
-                disc = disc.to(self.device)
-
-            # inputs = []
-            # labels = []
-            # domains = []
-
             for domain_key in self.test_workflow_iters[source_target].keys():
 
                 list_task_predictions_per_domain = []
                 list_task_targets_per_domain = []
-                list_domain_predictions_per_domain = []
-                list_domain_targets_per_domain = []
+
 
                 for inputs, labels, domains in self.test_workflow_iters[source_target][domain_key]:
 
                     n_total += inputs.size(0)
 
-                    inputs = inputs.cuda()
-                    labels = labels.cuda()
-                    domains = domains.cuda()
+                    inputs, labels, domains = Variable(inputs, requires_grad=False).cuda(), Variable(labels, requires_grad=False).long().cuda(), Variable( domains, requires_grad=False).long().cuda()
 
-                    task_predictions, task_targets, domain_predictions, domain_labels = self.algorithm.predict(
-                        inputs, labels, domains, feature_extractor, task_classifier, disc_list, self.device, 'source')
+                    task_predictions, task_targets, domain_predictions, domain_labels = self.algorithm.predict( inputs, labels, domains)
 
                     n_correct += task_predictions.eq(task_targets.data.view_as(
                         task_predictions)).cpu().sum() / task_targets.size(2)
 
-                    list_task_predictions_per_domain.extend(
-                        task_predictions.tolist())
+                    list_task_predictions_per_domain.extend(task_predictions.tolist())
                     list_task_targets_per_domain.extend(task_targets.tolist())
-                    list_domain_predictions_per_domain.extend(
-                        domain_predictions.tolist())
-                    list_domain_targets_per_domain.extend(
-                        domain_labels.tolist())
 
                 metrics_results_per_domain[domain_key] = {
                     'task': {
                         'accuracy': accuracy_score(y_true=list_task_targets_per_domain, y_pred=list_task_predictions_per_domain),
                         'f1_score': f1_score(y_true=list_task_targets_per_domain, y_pred=list_task_predictions_per_domain, average='macro')
-                    },
-                    'domain': {
-                        'accuracy': accuracy_score(y_true=list_domain_targets_per_domain, y_pred=list_domain_predictions_per_domain),
-                        'f1_score': f1_score(y_true=list_domain_targets_per_domain, y_pred=list_domain_predictions_per_domain, average='macro')
                     }
-
                 }
 
                 list_task_predictions.extend(list_task_predictions_per_domain)
                 list_task_targets.extend(list_task_targets_per_domain)
-                list_domain_predictions.extend(
-                    list_domain_predictions_per_domain)
-                list_domain_targets.extend(list_domain_targets_per_domain)
+
 
         acc = n_correct * 1.0 / n_total
 
@@ -439,17 +402,11 @@ class DefaultLauncher(object):
             self.writer.add_scalar(
                 'Test/' + source_target + '_accuracy', acc, self.current_epoch)
 
-            if source_target == 'source':
-                for i, disc in enumerate(disc_list):
-                    self.writer.add_histogram(
-                        'Test/source-D{}-pred'.format(i), domain_predictions[i], self.current_epoch)
-                    self.writer.add_pr_curve('Test/ROC-D{}'.format(i), labels=list_domain_targets,
-                                             predictions=list_domain_predictions, global_step=self.current_epoch)
 
         return metrics_results, metrics_results_per_domain
 
-    def extract_features(self):
-        raise NotImplementedError
-
-    def vizualize_features(self):
-        raise NotImplementedError
+    # def extract_features(self):
+    #     raise NotImplementedError
+    #
+    # def vizualize_features(self):
+    #     raise NotImplementedError
