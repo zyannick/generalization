@@ -98,11 +98,9 @@ def running(run):
         transformations['val'] = transforms.Compose([videotransforms.CenterCrop(224)])
         transformations['test'] = transforms.Compose([videotransforms.CenterCrop(224)])
     else:
-        transformations['train'] = transforms.Compose([videotransforms.RandomCrop(224),
-                                            videotransforms.RandomHorizontalFlip(),
-                                            ])
-        transformations['val'] = transforms.Compose([videotransforms.CenterCrop(224)])
-        transformations['test'] = transforms.Compose([videotransforms.CenterCrop(224)])
+        transformations['train'] = None
+        transformations['val'] = None
+        transformations['test'] = None
 
 
     train_data = {}

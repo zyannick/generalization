@@ -10,10 +10,10 @@ import numpy as np
 from tqdm import tqdm
 from glob import glob
 from os.path import *
-import flownet2.models as models
-import flownet2.losses as losses
-import flownet2.datasets as datasets
-from flownet2.utils import  tools
+from . import models
+from . import losses
+from . import datasets
+from .utils import  tools
 # fp32 copy of parameters for update
 global param_copy
 
