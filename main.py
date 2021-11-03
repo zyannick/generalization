@@ -107,19 +107,22 @@ def running(run):
     
 
     for domain_key in flags.source_domains_list:
-        train_data[domain_key] = Video_Datasets(data_root=flags.data_root,  split='train', flags=flags, domain_key=domain_key, is_train=True, modality = flags.modality,  transforms=transformations['train'])
-        val_data[domain_key] = Video_Datasets(data_root=flags.data_root,  split='val', flags=flags, domain_key=domain_key, is_train=False, modality = flags.modality,  transforms=transformations['val'])
+        train_data[domain_key] = Video_Datasets(data_root=flags.data_root, source_target= flags.source,  split='training', flags=flags, domain_key=domain_key, is_train=True, modality = flags.modality,  transforms=transformations['train'])
+        val_data[domain_key] = Video_Datasets(data_root=flags.data_root, source_target= flags.source,  split='testing', flags=flags, domain_key=domain_key, is_train=False, modality = flags.modality,  transforms=transformations['val'])
 
     test_data = {}
 
     for domain_key in flags.target_domains_list:
-        test_data[domain_key] = Video_Datasets(data_root=flags.target_root,  split='val', flags=flags, domain_key=domain_key, is_train=True, modality = 'thermal',  transforms=transformations['val'])
+        test_data[domain_key] = Video_Datasets(data_root=flags.data_root, source_target= flags.target, split='testing', flags=flags, domain_key=domain_key, is_train=True, modality = 'thermal',  transforms=transformations['val'])
 
     datasets = {}
     datasets['train'] = train_data
     datasets['val'] = val_data
     datasets['test'] = test_data
     class_idx = {}
+
+    flags.input_shape = 224
+    flags.class_balance = True
 
     
     algorithm_class = get_algorithm(flags)

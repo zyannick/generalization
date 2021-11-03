@@ -5,7 +5,7 @@ from models.launchers import *
 
 algorithm_dict = {
     'arm': ARM,
-    'cdann': CDANN, 
+    'cdann': CDANN,
     'coral': CORAL,
     'erm': ERM,
     'epi_fcr': ModelEpiFCR,
@@ -18,6 +18,7 @@ algorithm_dict = {
 }
 
 launcher_dict = {
+    None: DefaultLauncher,
     'arm': DefaultLauncher,
     'cdann': DefaultLauncher,
     'coral': DefaultLauncher,
@@ -31,12 +32,14 @@ launcher_dict = {
     'vrex': DefaultLauncher
 }
 
+
 def get_algorithm(flags) -> algo.Algorithm:
     if flags.dm_model in algorithm_dict.keys():
         model_class = algorithm_dict[flags.dm_model]
     else:
         raise ValueError('No model found for {}'.format(flags.dm_model))
     return model_class
+
 
 def get_launcher(flags) -> DefaultLauncher:
     if flags.dm_model in launcher_dict.keys():

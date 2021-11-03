@@ -22,6 +22,7 @@ from skimage.filters import roberts, sobel, sobel_h, sobel_v, scharr, \
 
 import torch
 import torch.utils.data as data
+from termcolor import colored
 
 import os, math, random
 from os.path import *
@@ -135,12 +136,15 @@ correspondance = {'walk': 0, 'handpickup': 1, 'lieonbedthensit': 2,
                   'sitthenfall': 6, 'fall': 7}
 
 
-def make_dataset(split, data_root, input_mode, num_classes, nb_frames_per_shot):
+def make_dataset(split, data_root, type_input, input_mode, num_classes, nb_frames_per_shot):
     split_file = glob(os.path.join(data_root, '*.json'))[0]
     dataset = []
     # print(os.getcwd() )
     with open(split_file, 'r') as f:
         data = json.load(f)
+
+    with open(split_file, 'w') as outfile:
+        json.dump(data, outfile, indent=4)
 
     i = 0
     short_data = 0
@@ -153,13 +157,14 @@ def make_dataset(split, data_root, input_mode, num_classes, nb_frames_per_shot):
             continue
 
         video_name = data[vid]['oricy']
+        # print(video_name)
 
-        file_name = os.path.join(data_root, video_name)
+        file_name = os.path.join(data_root, type_input, video_name)
 
         # print(file_name)
 
         if not os.path.exists(file_name):
-            print(file_name)
+            print(colored(file_name, 'red'))
             continue
 
         num_frames = int(data[vid]['duration'])
@@ -247,7 +252,7 @@ def get_flow_model():
 
     
     flags = argparse.Namespace()
-    flags.model = 'checkpoints/gma-sintel.pth'
+    flags.model = 'pretrained/gma-sintel.pth'
     flags.model_name = 'GMA'
     flags.path = 'imgs'
     flags.num_heads = 1
@@ -257,7 +262,7 @@ def get_flow_model():
 
     model = torch.nn.DataParallel(RAFTGMA(flags))
     model.load_state_dict(torch.load(flags.model))
-    print(f"Loaded checkpoint at {flags.model}")
+    # print(f"Loaded checkpoint at {flags.model}")
 
     model = model.module
     model.cuda()
@@ -268,21 +273,21 @@ def get_flow_model():
 
 class Video_Datasets(data_utl.Dataset):
 
-    def __init__(self, data_root,  split, flags, domain_key, is_train, modality,  transforms=None):
+    def __init__(self, data_root,  split, source_target, flags, domain_key, is_train, modality,  transforms=None):
 
         # print("prepare dataset cme")
         self.is_train = is_train
-        self.data = make_dataset(split, data_root, flags.input_mode, flags.num_classes, flags.nb_frames)
+        self.data = make_dataset(split= split, data_root= os.path.join(data_root, source_target), type_input=flags.input ,input_mode=flags.input_mode, num_classes= flags.num_classes,nb_frames_per_shot= flags.nb_frames)
         self.args = flags
         self.flow_model = get_flow_model()
         self.domain_key = domain_key
         self.nb_frames = flags.nb_frames
         self.transforms = transforms
         self.input_mode = flags.input_mode
-        self.middle_mode = flags.middle_mode
-        self.root = flags.root
+        self.middle_transform = flags.middle_transform
+        self.data_root = os.path.join(data_root, source_target)
         self.modality = modality
-        self.data_aug = flags.data_aug
+        self.video_augmentations = flags.video_augmentations
         self.affine_transform = flags.affine_transform
         self.taille = len(self.data)
 
@@ -298,13 +303,13 @@ class Video_Datasets(data_utl.Dataset):
                     self.nb_frames + 1))
 
         # print('enfin %d' %(total_number_frames-start_f))
-        numpy_imgs, list_imgs = load_frames(self.root, vid, start_f, self.nb_frames, self.data_aug,
+        numpy_imgs, list_imgs = load_frames(self.data_root, vid, start_f, self.nb_frames, self.video_augmentations,
                                       affine_transform=self.affine_transform,
                                       domain_key=self.domain_key,
                                       is_train=self.is_train,
                                       modality=self.modality,
                                       verbose=False, original_mode=self.input_mode,
-                                      middle_mode=self.middle_mode,
+                                      middle_transform=self.middle_transform,
                                       frame_height=192,
                                       frame_width=256
                                       )
@@ -312,7 +317,7 @@ class Video_Datasets(data_utl.Dataset):
         # print('get_video')
         # print(imgs.shape)
 
-        if self.args.middle_mode == 'flow':
+        if self.args.middle_transform == 'flow':
             flows = []
             for it in range(len(list_imgs) - 1):
                 image1 = list_imgs[it]
