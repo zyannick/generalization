@@ -17,7 +17,7 @@ import numpy as np
 
 
 
-class Mixup(ERM.ERM):
+class Mixup(ERM):
     def __init__(self, flags, hparams, input_shape, datasets, checkpoint_path, class_balance):
         super(Mixup, self).__init__(flags, hparams, input_shape, datasets, checkpoint_path, class_balance)
 

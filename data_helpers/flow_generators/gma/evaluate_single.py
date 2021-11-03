@@ -12,9 +12,15 @@ from PIL import Image
 import imageio
 import matplotlib.pyplot as plt
 
-from .core.network import RAFTGMA
-from .core.utils import flow_viz
-from .core.utils.utils import InputPadder
+try:
+    from .core.network import RAFTGMA
+    from .core.utils import flow_viz
+    from .core.utils.utils import InputPadder
+except:
+    from core.network import RAFTGMA
+    from core.utils import flow_viz
+    from core.utils.utils import InputPadder
+
 import os
 
 
@@ -69,24 +75,40 @@ def demo(args):
             padder = InputPadder(image1.shape)
             image1, image2 = padder.pad(image1, image2)
 
+            
+
             flow_low, flow_up = model(image1, image2, iters=12, test_mode=True)
+            print(flow_up.shape)
             print(f"Estimating optical flow...")
 
             viz(image1, flow_up, flow_dir)
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--model', help="restore checkpoint")
-    parser.add_argument('--model_name', help="define model name", default="GMA")
-    parser.add_argument('--path', help="dataset for evaluation")
-    parser.add_argument('--num_heads', default=1, type=int,
-                        help='number of heads in attention and aggregation')
-    parser.add_argument('--position_only', default=False, action='store_true',
-                        help='only use position-wise attention')
-    parser.add_argument('--position_and_content', default=False, action='store_true',
-                        help='use position and content-wise attention')
-    parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
-    args = parser.parse_args()
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument('--model', help="restore checkpoint", default= 'checkpoints/gma-sintel.pth')
+    # parser.add_argument('--model_name', help="define model name", default="GMA")
+    # parser.add_argument('--path', help="dataset for evaluation", default='imgs')
+    # parser.add_argument('--num_heads', default=1, type=int,
+    #                     help='number of heads in attention and aggregation')
+    # parser.add_argument('--position_only', default=False, action='store_true',
+    #                     help='only use position-wise attention')
+    # parser.add_argument('--position_and_content', default=False, action='store_true',
+    #                     help='use position and content-wise attention')
+    # parser.add_argument('--mixed_precision', action='store_true', help='use mixed precision')
+    # args = parser.parse_args()
 
-    demo(args)
+    # print(args)
+
+    flags = argparse.Namespace()
+    flags.model = 'checkpoints/gma-sintel.pth'
+    flags.model_name = 'GMA'
+    flags.path = 'imgs'
+    flags.num_heads = 1
+    flags.position_only = False
+    flags.position_and_content = False
+    flags.mixed_precision = False
+    # args = parser.parse_args()
+    print(flags)
+
+    demo(flags)

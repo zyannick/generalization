@@ -23,10 +23,10 @@ from args_parser import global_parser
 parser = global_parser()
 
 flags = parser.parse_args()
-flags.cuda = True if not flags.no_cuda and torch.cuda.is_available() else False
-flags.logging = True if not flags.no_logging else False
+flags.cuda = True if flags.cuda and torch.cuda.is_available() else False
+flags.logging = True
 
-assert flags.alpha >= 0. and flags.alpha <= 1.
+# assert flags.alpha >= 0. and flags.alpha <= 1.
 
 
 
@@ -47,7 +47,7 @@ def running(run):
     train_mode = ''
 
     if flags.hparams_seed == 0:
-        hparams = hparams_registry.default_hparams(flags.algorithm, flags.dataset)
+        hparams = hparams_registry.default_hparams(flags.algorithm)
     else:
         hparams = hparams_registry.random_hparams(flags.algorithm, flags.dataset,
             commons.seed_hash(flags.hparams_seed, flags.trial_seed))
@@ -135,7 +135,6 @@ def running(run):
 
 def runs():
     for i in range(flags.n_runs):
-        print('Run {}'.format(i))
         running(i)
 
 

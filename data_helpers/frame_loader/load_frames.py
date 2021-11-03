@@ -1,4 +1,4 @@
-from loading.utils_edges import *
+from .utils_edges import *
 import cv2 as cv2
 from torch.autograd import Variable
 
@@ -11,7 +11,7 @@ import h5py
 import random
 import os
 import os.path
-import glob
+from glob import glob
 import math
 from random import gauss
 import torch
@@ -82,8 +82,7 @@ def load_frames(root, video_file, start, nb_frames_per_shot,
     if verbose:
         print("here -1 {:d}   {:d}  {}".format(ts, nb_frames_per_shot, str(vid_visible.isOpened())))
     while ts < nb_frames_per_shot and vid_visible.isOpened():
-        if verbose:
-            print("here 0")
+
         ret, img = vid_visible.read()
 
         if not ret:
@@ -223,7 +222,7 @@ def normalize_flow(flow_frame):
 def load_flow_frames(root_dir, vid, start, nb_frames, frame_width = 80, frame_height = 60):
     # get the shape
     dir_name = vid.split('.')[0]
-    list_pkl = glob.glob(os.path.join(root_dir, dir_name, '*.pkl'))
+    list_pkl = glob(os.path.join(root_dir, dir_name, '*.pkl'))
     first_pkl = list_pkl[0]
     with open(first_pkl, "rb") as fout:
         first_flow = pkl.load(fout)

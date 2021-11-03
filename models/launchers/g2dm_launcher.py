@@ -15,7 +15,7 @@ from data_helpers.pytorch_balanced_sampler.sampler import SamplerFactory
 from models.algoritms import  *
 from tqdm import tqdm
 from datetime import datetime
-from default_launcher import DefaultLauncher
+from .default_launcher import DefaultLauncher
 from sklearn.metrics import accuracy_score
 from sklearn.metrics import f1_score
 from torch.utils.tensorboard import SummaryWriter

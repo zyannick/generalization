@@ -6,7 +6,7 @@ import torch.nn.init as init
 import torch
 from collections import OrderedDict
 import torchvision.models as models_tv
-from network.pytorch_i3d import Unit3D
+from models.backbones.i3d.pytorch_i3d import Unit3D
 
 
 class ReverseLayer(Function):
@@ -294,8 +294,9 @@ class Identity(nn.Module):
         return x
 
 
-from ..network.pytorch_i3d import InceptionI3d as InceptionI3d_normal
-from ..network.pytorch_i3d_ext import InceptionI3d as InceptionI3d_extend
+from models.backbones.i3d.pytorch_i3d import InceptionI3d as InceptionI3d_normal
+
+
 
 
 def get_trained_model(args):
@@ -326,10 +327,8 @@ def get_pretrained_model(args):
         n_outputs = 4096
 
     else:
-        if args.is_extended:
-            InceptionI3d = InceptionI3d_extend
-        else:
-            InceptionI3d = InceptionI3d_normal
+
+        InceptionI3d = InceptionI3d_normal
 
         if args.middle_mode == 'flow':
             i3d = InceptionI3d(400, in_channels=2)

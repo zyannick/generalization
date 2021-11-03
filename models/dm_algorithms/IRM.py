@@ -17,7 +17,6 @@ from torch.autograd import Variable
 
 from models.backbones.epi_fcr_backbones import resnet_vanilla, resnet_epi_fcr
 
-from models.algoritms import DefaultModel
 import utils.commons as commons
 from data_helpers.pytorch_balanced_sampler.sampler import SamplerFactory
 import torch.optim as optim

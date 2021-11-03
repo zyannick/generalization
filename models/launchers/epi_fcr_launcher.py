@@ -1,5 +1,5 @@
 
-from default_launcher import *
+from .default_launcher import *
 
 
 

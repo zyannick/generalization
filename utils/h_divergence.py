@@ -1,6 +1,6 @@
 import torch.utils.data
 from data_helpers.data_loader import *
-from network import models as models
+from .network import models as models
 import argparse
 
 from sklearn.utils import shuffle

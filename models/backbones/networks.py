@@ -21,7 +21,7 @@ import torch.nn.init as init
 import torch
 from collections import OrderedDict
 import torchvision.models as models_tv
-from network.pytorch_i3d import Unit3D
+from .i3d.pytorch_i3d import Unit3D
 
 
 class ReverseLayer(Function):

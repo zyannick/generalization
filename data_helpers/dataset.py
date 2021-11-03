@@ -12,13 +12,13 @@ import h5py
 import random
 import os
 import os.path
-import glob
+
 from random import gauss
 from skimage.filters import roberts, sobel, sobel_h, sobel_v, scharr, \
     scharr_h, scharr_v, prewitt, prewitt_v, prewitt_h
 
 
-from data_helpers.flow_generators.flownet2.infer import call_inference, inference
+# from data_helpers.flow_generators.flownet2.infer import call_inference, inference
 
 import torch
 import torch.utils.data as data
@@ -29,12 +29,16 @@ from os.path import *
 import cv2
 import time
 
+
+import argparse
+
+from data_helpers.flow_generators.gma.core.network import RAFTGMA
+from data_helpers.flow_generators.gma.core.utils.utils import InputPadder
+
+
+
+from data_helpers.frame_loader.load_frames import *
 from glob import glob
-
-
-
-from data_helpers.loading.load_frames import *
-
 
 def choose_24_of_75(label):
     new_label = np.zeros([24])
@@ -132,7 +136,6 @@ correspondance = {'walk': 0, 'handpickup': 1, 'lieonbedthensit': 2,
 
 
 def make_dataset(split, data_root, input_mode, num_classes, nb_frames_per_shot):
-
     split_file = glob(os.path.join(data_root, '*.json'))[0]
     dataset = []
     # print(os.getcwd() )
@@ -240,6 +243,29 @@ def save_numpy_frames(flow_numpy):
         cv2.imwrite(os.path.join(save_flows, now, str(i).zfill(6)) + '.png', rgb)
 
 
+def get_flow_model():
+
+    
+    flags = argparse.Namespace()
+    flags.model = 'checkpoints/gma-sintel.pth'
+    flags.model_name = 'GMA'
+    flags.path = 'imgs'
+    flags.num_heads = 1
+    flags.position_only = False
+    flags.position_and_content = False
+    flags.mixed_precision = False
+
+    model = torch.nn.DataParallel(RAFTGMA(flags))
+    model.load_state_dict(torch.load(flags.model))
+    print(f"Loaded checkpoint at {flags.model}")
+
+    model = model.module
+    model.cuda()
+    model.eval()
+
+    return model
+
+
 class Video_Datasets(data_utl.Dataset):
 
     def __init__(self, data_root,  split, flags, domain_key, is_train, modality,  transforms=None):
@@ -248,6 +274,7 @@ class Video_Datasets(data_utl.Dataset):
         self.is_train = is_train
         self.data = make_dataset(split, data_root, flags.input_mode, flags.num_classes, flags.nb_frames)
         self.args = flags
+        self.flow_model = get_flow_model()
         self.domain_key = domain_key
         self.nb_frames = flags.nb_frames
         self.transforms = transforms
@@ -271,7 +298,7 @@ class Video_Datasets(data_utl.Dataset):
                     self.nb_frames + 1))
 
         # print('enfin %d' %(total_number_frames-start_f))
-        imgs, list_imgs = load_frames(self.root, vid, start_f, self.nb_frames, self.data_aug,
+        numpy_imgs, list_imgs = load_frames(self.root, vid, start_f, self.nb_frames, self.data_aug,
                                       affine_transform=self.affine_transform,
                                       domain_key=self.domain_key,
                                       is_train=self.is_train,
@@ -286,19 +313,26 @@ class Video_Datasets(data_utl.Dataset):
         # print(imgs.shape)
 
         if self.args.middle_mode == 'flow':
-            image_dataset = ImageParser(args=self.args_flownet, images=list_imgs, is_cropped=False)
-            image_loader = torch.utils.data.DataLoader(image_dataset, batch_size=self.nb_frames)
-            flows = inference(args=self.args_flownet, data_loader=image_loader, model=self.flownet)
-            # print(flows.shape)
-            flows_cpu = flows.cpu().numpy()
-            # save_numpy_frames(flows_cpu)
-            flows_cpu = transform_flows_frames(flows_cpu)
+            flows = []
+            for it in range(len(list_imgs) - 1):
+                image1 = list_imgs[it]
+                image2 = list_imgs[it + 1]
+                padder = InputPadder(image1.shape)
+                image1, image2 = padder.pad(image1, image2)
+
+                flow_low, flow_up = self.flow_model(image1, image2, iters=12, test_mode=True)
+                flow_up = flow_up.cpu().numpy()
+                flows.append(flow_up)
+
+
+            save_numpy_frames(flows)
+            flows_cpu = transform_flows_frames(flows)
             flows_cpu = self.transforms(flows_cpu)
             frames_pt = torch.from_numpy(flows_cpu.transpose([3, 0, 1, 2]))
             label = label[:, start_f:start_f + self.nb_frames - 1]
         else:
-            imgs = self.transforms(imgs)
-            frames_pt = video_to_tensor(imgs)
+            numpy_imgs = self.transforms(numpy_imgs)
+            frames_pt = video_to_tensor(numpy_imgs)
             label = label[:, start_f:start_f + self.nb_frames]
 
         return frames_pt, torch.from_numpy(label).squeeze(), torch.tensor(
