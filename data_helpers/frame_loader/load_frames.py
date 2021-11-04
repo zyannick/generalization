@@ -23,15 +23,15 @@ def getratio(frame_width = 80, frame_height = 60):
     radius_80_60 = math.sqrt(60 * 60 + 80 * 80)
     return  radius_frame / radius_80_60
 
-def load_frames(root, video_file, start, nb_frames_per_shot,
-                data_aug, affine_transform, is_train, domain_key,
-                modality='visible', verbose = False, original_mode = 'rgb', middle_mode = 'rgb',
+def load_frames(data_root, video_file, start, nb_frames_per_shot,
+                video_augmentations, affine_transform, is_train, domain_key,
+                modality='visible', verbose = False, original_mode = 'rgb', middle_transform = 'rgb',
                 frame_width = 80, frame_height = 60):
     ratio = getratio(frame_width, frame_height)
     original_mode = original_mode
     r_f = random.randint(1, 10)
     frames = []
-    file_name = root + '/' + video_file
+    file_name = os.path.join(data_root, video_file)
     if verbose:
         print(file_name)
     vid_visible = cv2.VideoCapture(file_name)
@@ -60,7 +60,7 @@ def load_frames(root, video_file, start, nb_frames_per_shot,
     cp = 0
 
     if not is_train:
-        data_aug = False
+        video_augmentations = False
         affine_transform = False
 
     while cp < start and vid_visible.isOpened():
@@ -93,7 +93,7 @@ def load_frames(root, video_file, start, nb_frames_per_shot,
         #if verbose:
         #    print("here 1")
         h, w, _ = img.shape
-        if data_aug:
+        if video_augmentations:
             if r_f > 5:
                 img = cv2.flip(img, 1)
             dx = int(random.uniform(-1, 1) * ratio)
@@ -119,14 +119,14 @@ def load_frames(root, video_file, start, nb_frames_per_shot,
         #if verbose:
         #    print("here 3")
         img = img[:, :, [2, 1, 0]]
-        if middle_mode == 'raw':
+        if middle_transform == 'raw':
             if w < 226 or h < 226:
                 d = 226. - min(w, h)
                 sc = 1 + d / min(w, h)
                 img = cv2.resize(img, dsize=(0, 0), fx=sc, fy=sc)
             if original_mode == 'rgb':
                 img = (img / 255.) * 2 - 1
-        elif middle_mode == 'flow':
+        elif middle_transform == 'flow':
             img = cv2.resize(img, dsize=(256, 192))
         frames.append(img)
     #frames = extract_optical_flow_from_list(frames)
@@ -295,7 +295,7 @@ def load_flow_frames(root_dir, vid, start, nb_frames, frame_width = 80, frame_he
 
 def load_computed_flow(root, video_file, start, nb_frames_per_shot, edge_type,
                        total_number_frames, blur_kernel, operator_kernel,
-                       data_aug, affine_transform, is_inference, frame_width = 80, frame_height = 60):
+                       video_augmentations, affine_transform, is_inference, frame_width = 80, frame_height = 60):
     r_f = random.randint(1, 10)
 
     frames = []
@@ -328,7 +328,7 @@ def load_computed_flow(root, video_file, start, nb_frames_per_shot, edge_type,
     cp = 0
 
     if is_inference:
-        data_aug = False
+        video_augmentations = False
         affine_transform = False
 
     while cp < start and vid_visible.isOpened():
@@ -359,7 +359,7 @@ def load_computed_flow(root, video_file, start, nb_frames_per_shot, edge_type,
 
         h, w, _ = img.shape
 
-        if data_aug:
+        if video_augmentations:
             if r_f > 5:
                 img = cv2.flip(img, 1)
             dx = random.randint(-1, 1)

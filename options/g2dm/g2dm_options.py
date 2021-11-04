@@ -13,7 +13,7 @@ class G2DM_Options(BaseOptions):
         parser.add_argument('--batch_size', default=1, type=int)
 
         parser.add_argument('--original_mode', type=str, default='rgb', help='raw or flow')
-        parser.add_argument('--middle_mode', type=str, default='flow', help='rgb or flow')
+        parser.add_argument('--middle_transform', type=str, default='flow', help='rgb or flow')
         parser.add_argument('--nb_frames', default=16, type=int)
         parser.add_argument('--blur_kernel', type=int, default=0)
         parser.add_argument('--operator_kernel', type=int, default=3)
@@ -39,7 +39,7 @@ class G2DM_Options(BaseOptions):
         parser.add_argument('--split_file', default='./maj_cmd_fall.json', type=str)
         parser.add_argument('--target_root', default='./baga_balanced/videos/', type=str)
         parser.add_argument('--target_split_file', default='./baga_balanced/baga.json', type=str)
-        parser.add_argument('--data_aug', type=bool, default=True)
+        parser.add_argument('--video_augmentations', type=bool, default=True)
         parser.add_argument('--affine_transform', type=bool, default=True)
 
 

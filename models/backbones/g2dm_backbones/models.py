@@ -330,7 +330,7 @@ def get_pretrained_model(args):
 
         InceptionI3d = InceptionI3d_normal
 
-        if args.middle_mode == 'flow':
+        if args.middle_transform == 'flow':
             i3d = InceptionI3d(400, in_channels=2)
             i3d.load_state_dict(torch.load('models/flow_imagenet.pt'))
         else:
